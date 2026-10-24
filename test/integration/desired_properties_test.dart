@@ -2,10 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:azure_iot_hub/src/authentication/iot_hub_connection_string.dart';
-import 'package:azure_iot_hub/src/device_client.dart';
-import 'package:azure_iot_hub/src/twin.dart';
+import 'package:azure_iot_hub/azure_iot_hub.dart';
 import 'package:test/test.dart';
+import 'package:uuid/uuid.dart';
 
 void main() {
   test(
@@ -18,12 +17,12 @@ void main() {
           'Configure AZURE_IOT_TEST_DEVICE_CONNECTION_STRING for a dedicated test device.',
         );
       }
-      final client = DeviceClient(
-        IotHubConnectionString.parse(value, now: DateTime.now().toUtc()),
+      final client = DeviceClient.fromConnectionString(
+        value,
         operationTimeout: const Duration(seconds: 30),
       );
       final property =
-          'sdkDesiredTest_${newTwinRequestId().replaceAll('-', '')}';
+          'sdkDesiredTest_${const Uuid().v4().replaceAll('-', '')}';
 
       Future<int> receivePatch(int expected) async {
         final received = Completer<Map<String, Object?>>();
@@ -55,7 +54,6 @@ void main() {
         await client.setDesiredPropertyUpdateCallback(null);
         final secondVersion = await receivePatch(2);
         expect(secondVersion > firstVersion, isTrue);
-        expect(client.pendingCount, 0);
       } finally {
         await client.close();
         print(

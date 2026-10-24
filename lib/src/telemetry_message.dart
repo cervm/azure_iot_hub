@@ -5,8 +5,14 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-/// An immutable telemetry snapshot for the internal client.
+/// An immutable snapshot of a telemetry payload and its message properties.
 final class TelemetryMessage {
+  /// Captures [payload] and [properties] for sending and retries.
+  ///
+  /// System fields such as [messageId] take precedence over matching application
+  /// properties. Null property values are retained and differ from empty strings.
+  /// Payloads larger than 262143 bytes throw [ArgumentError]; encoded topic limits
+  /// are checked when the message is submitted to a client.
   TelemetryMessage(
     List<int> payload, {
     Map<String, String?> properties = const {},
@@ -30,30 +36,31 @@ final class TelemetryMessage {
     }
   }
 
+  /// The copied payload, exposed as unmodifiable bytes.
   late final Uint8List payload;
   late final Map<String, String?> _properties;
+}
 
-  String topic(String deviceId) {
-    final topic = StringBuffer('devices/$deviceId/messages/events/');
-    var first = true;
-    for (final MapEntry(:key, :value) in _properties.entries) {
-      if (!first) topic.write('&');
-      first = false;
-      topic.write(escapeDataString(key));
-      if (value != null) {
-        topic.write('=${escapeDataString(value)}');
-      }
-      if (topic.length > 0xffff) {
-        throw ArgumentError('Telemetry topic exceeds the MQTT limit.');
-      }
+String telemetryTopic(TelemetryMessage message, String deviceId) {
+  final topic = StringBuffer('devices/$deviceId/messages/events/');
+  var first = true;
+  for (final MapEntry(:key, :value) in message._properties.entries) {
+    if (!first) topic.write('&');
+    first = false;
+    topic.write(escapeDataString(key));
+    if (value != null) {
+      topic.write('=${escapeDataString(value)}');
     }
-    if (_properties.isNotEmpty) topic.write('/');
-    final value = topic.toString();
-    if (utf8.encode(value).length > 0xffff) {
+    if (topic.length > 0xffff) {
       throw ArgumentError('Telemetry topic exceeds the MQTT limit.');
     }
-    return value;
   }
+  if (message._properties.isNotEmpty) topic.write('/');
+  final value = topic.toString();
+  if (utf8.encode(value).length > 0xffff) {
+    throw ArgumentError('Telemetry topic exceeds the MQTT limit.');
+  }
+  return value;
 }
 
 // Uri.EscapeDataString uses RFC 3986, unlike WebUtility.UrlEncode used for SAS.

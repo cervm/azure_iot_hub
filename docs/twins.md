@@ -1,7 +1,7 @@
-# Internal twin operations
+# Twin operations
 
-`DeviceClient.getTwin` opens implicitly and returns `TwinProperties` containing
-desired and reported collections. These are internal types, not a published API.
+`DeviceClient.getTwin` opens implicitly and returns `Twin`, with desired and reported
+maps at `twin.properties.desired` and `twin.properties.reported`.
 Nested JSON values, strings, nulls, `$version` and `$metadata` are retained.
 Missing collections default to empty maps; explicit null remains null, as in C#.
 
@@ -29,7 +29,7 @@ The pinned C# response policy is preserved: status values below 300 succeed.
 GET parses the body as twin properties; PATCH ignores the body, including an empty
 204 response. A 429 retries with exponential backoff; other error statuses,
 including 5xx, fail the request. Failures expose the numeric status through the
-internal `OperationFailure.statusCode`, without the response body. Invalid JSON
+`OperationFailure.statusCode`, without the response body. Invalid JSON
 fails only its request with a redacted protocol error.
 
 The 60-second response wait starts after PUBACK. If it expires, the client retries
@@ -64,7 +64,7 @@ the successful PATCH test. Live reconnect and expiry/renewal remain unverified.
 
 ## Desired-property callbacks
 
-`DeviceClient.setDesiredPropertyUpdateCallback` registers an internal callback
+`DeviceClient.setDesiredPropertyUpdateCallback` registers a callback
 receiving a JSON map. First registration subscribes to
 `$iothub/twin/PATCH/properties/desired/#` at QoS 1 and waits for SUBACK. Replacing
 the callback uses the existing subscription. Passing null waits for UNSUBACK

@@ -4,23 +4,54 @@ import 'package:cancellation_token/cancellation_token.dart';
 
 typedef Schedule = Timer Function(Duration delay, void Function() callback);
 
+/// The reason an operation could not complete.
 enum OperationFailureReason {
+  /// Caller cancellation was requested.
   cancelled,
+
+  /// The operation's finite deadline elapsed.
   timeout,
+
+  /// The client was closed.
   closed,
+
+  /// A pending-work or transport resource limit was reached.
   capacity,
+
+  /// Credentials were rejected or could not be acquired or validated.
   authentication,
+
+  /// TLS setup or certificate validation failed.
   tls,
+
+  /// Negotiation, a required subscription or incoming protocol data was invalid.
   protocol,
+
+  /// The service returned a terminal error response.
   service,
 }
 
-enum DeliveryState { notSubmitted, unknown }
+/// Whether a failed operation may have reached the service.
+enum DeliveryState {
+  /// The operation was never submitted to the transport.
+  notSubmitted,
 
-/// An internal operation failure, without transport or credential details.
+  /// Submission was attempted, so the service may have accepted the operation.
+  unknown,
+}
+
+/// An operation failure, without transport or credential details.
+///
+/// A timeout or cancellation does not undo a submitted operation. Check [delivery]
+/// before deciding whether an application-level retry could duplicate its effects.
 final class OperationFailure(
+  /// The category of failure.
   final OperationFailureReason reason,
+
+  /// The delivery uncertainty retained across connection attempts.
   final DeliveryState delivery, {
+
+  /// The service response status, when the failure came from a twin response.
   final int? statusCode,
 }) implements Exception {
   @override

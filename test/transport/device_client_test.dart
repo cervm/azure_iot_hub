@@ -11,10 +11,7 @@ import 'package:azure_iot_hub/azure_iot_hub.dart';
 import 'package:azure_iot_hub/src/authentication/iot_hub_connection_string.dart';
 import 'package:azure_iot_hub/src/cancellation.dart'
     show unwrapCancellationToken;
-import 'package:azure_iot_hub/src/device_client.dart';
-import 'package:azure_iot_hub/src/pending_operation.dart';
-import 'package:azure_iot_hub/src/telemetry_message.dart';
-import 'package:azure_iot_hub/src/transport/mqtt_transport_type.dart';
+import 'package:azure_iot_hub/src/internal_client.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:test/test.dart';
 
@@ -31,7 +28,7 @@ void main() {
 void transportTests(MqttTransportType transport) {
   late MqttPeerServer server;
   late ManualTime time;
-  late DeviceClient client;
+  late InternalClient client;
   late Duration wallClockOffset;
 
   setUp(() async {
@@ -43,7 +40,7 @@ void transportTests(MqttTransportType transport) {
     };
     time = ManualTime();
     wallClockOffset = Duration.zero;
-    client = DeviceClient(
+    client = InternalClient(
       credentials(),
       transport: transport,
       port: server.port,
@@ -521,7 +518,7 @@ void transportTests(MqttTransportType transport) {
     'untrusted TLS certificate fails without bypassing verification',
     () async {
       await client.close();
-      client = DeviceClient(
+      client = InternalClient(
         credentials(),
         transport: transport,
         port: server.port,
@@ -590,7 +587,7 @@ void transportTests(MqttTransportType transport) {
         await connections.cancel();
         await plain.close();
       });
-      client = DeviceClient(
+      client = InternalClient(
         credentials(),
         transport: transport,
         port: plain.port,
@@ -644,7 +641,7 @@ void transportTests(MqttTransportType transport) {
         await listener.cancel();
         await plain.close();
       });
-      client = DeviceClient(
+      client = InternalClient(
         credentials(),
         transport: transport,
         port: plain.port,
@@ -677,7 +674,7 @@ void transportTests(MqttTransportType transport) {
 
   test('byte capacity rejects before opening a connection', () async {
     await client.close();
-    client = DeviceClient(
+    client = InternalClient(
       credentials(),
       maxPendingBytes: 32,
       schedule: time.schedule,
@@ -797,7 +794,7 @@ void transportTests(MqttTransportType transport) {
         'GatewayHostName=127.0.0.1;SharedAccessSignature=${token.value}',
         now: epoch,
       );
-      client = DeviceClient(
+      client = InternalClient(
         supplied,
         transport: transport,
         port: server.port,

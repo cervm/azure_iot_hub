@@ -47,14 +47,28 @@ Uint8List encodeReportedProperties(Map<String, Object?> properties) {
   }
 }
 
-/// The desired and reported property collections returned by a twin GET.
+/// The device-visible twin returned by a twin GET.
+///
+/// Service-only fields such as tags and device registry metadata are not included.
+final class Twin(
+  /// The desired and reported properties returned by the hub.
+  final TwinProperties properties,
+);
+
+/// The desired and reported property collections returned by the hub.
 ///
 /// Collection maps retain `$version`, `$metadata`, nested values and nulls.
-/// This model is internal while the public device API is being established.
+/// The outer maps are unmodifiable; nested JSON maps and lists remain mutable.
 final class TwinProperties._(
+  /// The desired collection, or `null` if the service explicitly returned null.
   final Map<String, Object?>? desired,
+
+  /// The reported collection, or `null` if the service explicitly returned null.
   final Map<String, Object?>? reported,
 ) {
+  /// Decodes a properties-only JSON document encoded as UTF-8.
+  ///
+  /// Missing collections default to empty maps; explicit nulls are retained.
   factory fromBytes(List<int> bytes) {
     try {
       final body = jsonDecode(utf8.decode(bytes));

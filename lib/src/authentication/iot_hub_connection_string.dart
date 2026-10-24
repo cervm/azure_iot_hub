@@ -9,7 +9,8 @@ import 'shared_access_signature.dart';
 ///
 /// Matches C#'s `SafeCreateNewToken` callback. The returned token's expiry controls
 /// caching. The provider owns its I/O timeouts; caller cancellation does not stop
-/// shared acquisition. This type is internal and is not exported by the SDK.
+/// shared acquisition. The suggested lifetime is in seconds and defaults to one
+/// hour. The provider may return a token with a different lifetime.
 typedef SasTokenProvider = Future<String> Function(
   String iotHub,
   int suggestedTimeToLiveSeconds,

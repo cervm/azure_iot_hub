@@ -7,10 +7,7 @@ import 'dart:convert';
 import 'package:azure_iot_hub/azure_iot_hub.dart';
 import 'package:azure_iot_hub/src/cancellation.dart'
     show unwrapCancellationToken;
-import 'package:azure_iot_hub/src/device_client.dart';
-import 'package:azure_iot_hub/src/pending_operation.dart';
-import 'package:azure_iot_hub/src/telemetry_message.dart';
-import 'package:azure_iot_hub/src/transport/mqtt_transport_type.dart';
+import 'package:azure_iot_hub/src/internal_client.dart';
 import 'package:test/test.dart';
 
 import '../prototype/support/manual_time.dart';
@@ -36,7 +33,7 @@ void main() {
 void transportTests(MqttTransportType transport) {
   late MqttPeerServer server;
   late ManualTime time;
-  late DeviceClient client;
+  late InternalClient client;
 
   setUp(() async {
     server = await switch (transport) {
@@ -46,7 +43,7 @@ void transportTests(MqttTransportType transport) {
       ),
     };
     time = ManualTime();
-    client = DeviceClient(
+    client = InternalClient(
       credentials(),
       transport: transport,
       port: server.port,

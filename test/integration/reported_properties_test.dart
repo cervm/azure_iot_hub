@@ -1,9 +1,8 @@
 import 'dart:io';
 
-import 'package:azure_iot_hub/src/authentication/iot_hub_connection_string.dart';
-import 'package:azure_iot_hub/src/device_client.dart';
-import 'package:azure_iot_hub/src/twin.dart';
+import 'package:azure_iot_hub/azure_iot_hub.dart';
 import 'package:test/test.dart';
+import 'package:uuid/uuid.dart';
 
 void main() {
   test(
@@ -16,11 +15,11 @@ void main() {
           'Configure AZURE_IOT_TEST_DEVICE_CONNECTION_STRING for a dedicated test device.',
         );
       }
-      final client = DeviceClient(
-        IotHubConnectionString.parse(value, now: DateTime.now().toUtc()),
+      final client = DeviceClient.fromConnectionString(
+        value,
         operationTimeout: const Duration(seconds: 30),
       );
-      final property = 'sdkPatchTest_${newTwinRequestId().replaceAll('-', '')}';
+      final property = 'sdkPatchTest_${const Uuid().v4().replaceAll('-', '')}';
       try {
         await client.updateReportedProperties({
           property: {'value': 'first', 'keep': true, 'removeMe': true},
@@ -28,7 +27,7 @@ void main() {
         await client.updateReportedProperties({
           property: {'value': 'second', 'removeMe': null},
         });
-        final entry = (await client.getTwin()).reported?[property];
+        final entry = (await client.getTwin()).properties.reported?[property];
         // Assert booleans so failures never print device property collections.
         expect(
           entry is Map &&
@@ -40,7 +39,7 @@ void main() {
       } finally {
         try {
           await client.updateReportedProperties({property: null});
-          final reported = (await client.getTwin()).reported;
+          final reported = (await client.getTwin()).properties.reported;
           expect(reported != null && !reported.containsKey(property), isTrue);
         } finally {
           await client.close();

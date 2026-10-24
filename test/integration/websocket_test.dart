@@ -1,10 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:azure_iot_hub/src/authentication/iot_hub_connection_string.dart';
-import 'package:azure_iot_hub/src/device_client.dart';
-import 'package:azure_iot_hub/src/telemetry_message.dart';
-import 'package:azure_iot_hub/src/transport/mqtt_transport_type.dart';
+import 'package:azure_iot_hub/azure_iot_hub.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -18,9 +15,9 @@ void main() {
           'Configure AZURE_IOT_TEST_DEVICE_CONNECTION_STRING for a dedicated test device.',
         );
       }
-      final client = DeviceClient(
-        IotHubConnectionString.parse(value, now: DateTime.now().toUtc()),
-        transport: MqttTransportType.webSocket,
+      final client = DeviceClient.fromConnectionString(
+        value,
+        transport: .webSocket,
         operationTimeout: const Duration(seconds: 30),
       );
       try {
@@ -33,13 +30,8 @@ void main() {
           ),
         );
         final twin = await client.getTwin();
-        expect(twin.desired?[r'$version'] is int, isTrue);
-        expect(twin.reported?[r'$version'] is int, isTrue);
-        expect(client.pendingCount, 0);
-      } catch (_) {
-        // Only fixed stages, categories and numeric status codes are retained.
-        print('CONNECTION DIAGNOSTICS: ${client.connectionDiagnostics}');
-        rethrow;
+        expect(twin.properties.desired?[r'$version'] is int, isTrue);
+        expect(twin.properties.reported?[r'$version'] is int, isTrue);
       } finally {
         await client.close();
       }

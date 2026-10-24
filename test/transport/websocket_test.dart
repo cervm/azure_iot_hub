@@ -6,7 +6,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:azure_iot_hub/src/device_client.dart';
+import 'package:azure_iot_hub/src/internal_client.dart';
 import 'package:azure_iot_hub/src/pending_operation.dart';
 import 'package:azure_iot_hub/src/transport/connection_diagnostics.dart';
 import 'package:azure_iot_hub/src/transport/mqtt_transport.dart';
@@ -108,8 +108,8 @@ void main() {
   test(
     'IoT Hub SAS endpoint and mqtt subprotocol; credentials stay out of HTTP',
     () async {
-      final tcp = DeviceClient(credentials());
-      final wss = DeviceClient(
+      final tcp = InternalClient(credentials());
+      final wss = InternalClient(
         credentials(),
         transport: MqttTransportType.webSocket,
       );
@@ -343,7 +343,7 @@ void main() {
       '${timeout ? 'timeout' : 'close'} releases a stalled HTTP upgrade',
       () async {
         final time = ManualTime();
-        final client = DeviceClient(
+        final client = InternalClient(
           credentials(),
           transport: MqttTransportType.webSocket,
           port: server.port,

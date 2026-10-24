@@ -1,6 +1,6 @@
 # Internal telemetry transport
 
-The unexported `DeviceClient` now supports connection strings, SAS authentication,
+The public `DeviceClient` delegates to `InternalClient` for SAS authentication,
 implicit open, twin retrieval, reported-property updates, desired-property callbacks
 and QoS 1 telemetry over TLS on port 8883 or secure WebSockets on port 443.
 A successful send means PUBACK arrived; cancellation or failure after submission
@@ -16,7 +16,7 @@ another MQTT client enables the package's global logger.
 
 ## Secure WebSockets
 
-The internal `transport: MqttTransportType.webSocket` option selects WSS explicitly;
+The `transport: .webSocket` option selects WSS explicitly;
 TCP/TLS remains the default. This corresponds to C#'s explicit MQTT transport
 options; automatic TCP-to-WSS fallback and proxy configuration are not implemented.
 SAS WSS uses `/$iothub/websocket?iothub-no-client-cert=true`, subprotocol `mqtt`,
@@ -36,7 +36,7 @@ the WebSocket sink after an active write settles.
   reconnect waits. Caller cancellation does not stop shared connection recovery.
 - Submitted cancelled packets retain capacity until acknowledgement or their
   original deadline. Expiry retires the connection and allows other operations to retry.
-- The current internal defaults allow 16 pending operations and 4 MiB of pending
+- The defaults allow 16 pending operations and 4 MiB of pending
   payload/topic/frame bytes. Both limits are configurable and checked before
   submission. They bound retained work, not exact process RSS.
 - Socket read and write buffers each have a separate cap of the pending-byte
@@ -60,8 +60,8 @@ the WebSocket sink after an active write settles.
   Desired-patch decoding or synchronous callback failures retire the connection
   and recover its subscriptions, following C#; see [twin notes](twins.md).
 
-Queue defaults and connection bounds are internal tuning values, not a published
-configuration contract. There is no offline persistence.
+Public constructors expose pending-work limits and connection/operation timeouts.
+These limits do not provide offline persistence.
 
 ## SAS renewal
 
@@ -119,9 +119,10 @@ remain unverified.
 
 Controlled regressions cover mixed-case hostnames and independently decode the
 outgoing CONNECT frame to verify masking and the complete MQTT payload.
-On failure, the smoke test prints a bounded diagnostic snapshot:
+The internal client retains a bounded diagnostic snapshot:
 attempt count, connection stage, failure category, HTTP status and WebSocket close
 code. It excludes endpoints, device identities, credentials, response bodies,
 WebSocket close reasons and raw exception text.
-The device client API remains internal; SDK-owned cancellation types are exported.
+The public device API keeps these mutable diagnostics internal. Live tests now use
+the public import; that migration has not yet been rerun against Azure.
 The live SAS expiry test is deferred.

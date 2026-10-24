@@ -2,11 +2,60 @@
 
 A standalone, pure-Dart Azure IoT Hub device SDK for native runtimes.
 
-Early development: the device API is internal and not exported. The initial release targets
-SAS authentication, MQTT over TLS and secure WebSockets, telemetry, and device twins.
+The experimental public API supports SAS authentication, MQTT over TLS and secure
+WebSockets, telemetry, and device twins. Behaviour follows the pinned stable C#
+device SDK; see the [upstream reference](docs/upstream.md) for source/test mappings
+and intentional differences.
 
-Behaviour follows the stable C# device SDK. See the [upstream reference](docs/upstream.md)
-for the pinned version, source/test mapping and intentional differences.
+## Usage
+
+Import the package library. Connection strings should come from secure configuration:
+
+```dart
+import 'dart:convert';
+import 'package:azure_iot_hub/azure_iot_hub.dart';
+
+Future<void> sendTelemetry(String connectionString) async {
+  final client = DeviceClient.fromConnectionString(connectionString);
+  try {
+    await client.sendEvent(
+      .new(
+        utf8.encode(jsonEncode({'temperature': 21.5})),
+        contentType: 'application/json',
+        contentEncoding: 'utf-8',
+      ),
+    );
+  } finally {
+    await client.close();
+  }
+}
+```
+
+Operations connect implicitly; `open()` is also available. Select
+`transport: .webSocket` for WSS on port 443. `DeviceClient.withTokenProvider`
+accepts an asynchronous SAS provider. Tokens are cached and refreshed when a
+connection requests eligible credentials, following C#; renewal does not schedule
+disconnects. See the [authentication notes](docs/upstream.md#internal-authentication-coverage).
+
+`getTwin()` returns `Twin` with `twin.properties.desired` and `reported` maps.
+`updateReportedProperties` sends a JSON patch; null values delete properties.
+`setDesiredPropertyUpdateCallback` receives patches and accepts null to unsubscribe.
+Applications own snapshot retrieval and version reconciliation. See the
+[twin notes](docs/twins.md).
+
+Cancellation is optional: pass a `CancellationTokenSource`'s `token` and call
+`source.cancel()`. Every operation retains a finite timeout, four minutes by
+default, including reconnect waits. `OperationFailure` exposes `reason`, `delivery`
+and an optional twin response `statusCode`. `DeliveryState.unknown` means a failed
+operation may already have reached the hub; retrying can duplicate its effects.
+See the [public API contract](docs/upstream.md#public-device-api).
+
+The [runnable example](example/azure_iot_hub_example.dart) reads
+`AZURE_IOT_DEVICE_CONNECTION_STRING`, sends telemetry and retrieves the twin:
+
+```sh
+fvm dart run example/azure_iot_hub_example.dart
+```
 
 ## Development
 
@@ -19,38 +68,14 @@ fvm dart analyze
 fvm dart test
 ```
 
-The [cancellation/MQTT prototype](docs/mqtt-prototype.md) exercises the actual MQTT
-client against a controlled loopback peer. It is test-only and needs no Azure credentials.
+Controlled tests cover both transports, cancellation, retries, deadlines, SAS
+providers and bounded pending work. Public API tests exercise the same operations
+using only the package's SDK import. See the [transport notes](docs/telemetry-transport.md)
+and [MQTT prototype](docs/mqtt-prototype.md).
 
-An internal client now connects using device SAS credentials over MQTT/TLS or
-secure WebSockets and sends QoS 1 telemetry, completing on PUBACK. Tests over both
-transports cover retries, cancellation, deadlines, certificate validation,
-stalled-handshake cleanup and bounded pending work. Shared-key and async-provider
-SAS tokens are cached and refreshed on reconnect when eligible, following C#.
-Renewal does not schedule disconnects. Provider acquisition shares existing deadlines and does not
-delay caller cancellation or close. See the
-[authentication notes](docs/upstream.md#internal-authentication-coverage) and
-[transport notes](docs/telemetry-transport.md).
-
-Internal twin retrieval and reported-property updates subscribe to responses
-during open and complete after PUBACK and the matching service response. Controlled
-tests cover throttling, service errors, cancellation, reconnect, response ordering
-and JSON patch semantics. Desired-property callbacks deliver patches and restore
-their subscription after reconnect. The application owns snapshot retrieval and
-version reconciliation. See the [twin notes](docs/twins.md).
-
-The package exports SDK-owned `CancellationTokenSource` and `CancellationToken`.
-Pass `source.token` to client operations and call `source.cancel()` to request
-cancellation. The token exposes `isCancellationRequested`; cancellation remains
-optional and does not disable operation deadlines. The `cancellation_token`
-dependency and its types remain internal. See the
-[cancellation contract](docs/upstream.md#sdk-owned-cancellation).
-
-The device client and its message, twin and error models remain internal pending
-public API review.
-
-The live Azure telemetry smoke test has passed in a user-run test. Linux ARM64
-and long-running reliability validation remain outstanding.
+User-run live tests have passed for telemetry, twin updates, desired callbacks
+and WSS. Linux ARM64, live reconnect and long-running reliability validation remain
+outstanding. The public API migration has not yet been rerun against a real hub.
 
 ## Optional Azure smoke test
 

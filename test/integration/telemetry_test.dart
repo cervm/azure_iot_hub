@@ -1,9 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:azure_iot_hub/src/authentication/iot_hub_connection_string.dart';
-import 'package:azure_iot_hub/src/device_client.dart';
-import 'package:azure_iot_hub/src/telemetry_message.dart';
+import 'package:azure_iot_hub/azure_iot_hub.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -17,8 +15,8 @@ void main() {
           'Configure AZURE_IOT_TEST_DEVICE_CONNECTION_STRING for a dedicated test device.',
         );
       }
-      final client = DeviceClient(
-        IotHubConnectionString.parse(value, now: DateTime.now().toUtc()),
+      final client = DeviceClient.fromConnectionString(
+        value,
         operationTimeout: const Duration(seconds: 30),
       );
       try {
@@ -30,7 +28,6 @@ void main() {
             contentEncoding: 'utf-8',
           ),
         );
-        expect(client.pendingCount, 0);
       } finally {
         await client.close();
       }

@@ -10,7 +10,7 @@ import 'package:test/test.dart';
 void main() {
   test('empty property bag preserves base topic', () {
     expect(
-      TelemetryMessage([]).topic('device'),
+      telemetryTopic(TelemetryMessage([]), 'device'),
       'devices/device/messages/events/',
     );
   });
@@ -27,7 +27,7 @@ void main() {
       },
     );
     expect(
-      message.topic('device'),
+      telemetryTopic(message, 'device'),
       'devices/device/messages/events/'
       '%24.mid=system&flag&empty=&%21%2A%27%28%29~=a%20b%2Bc%2F%E2%98%95/',
     );
@@ -40,7 +40,10 @@ void main() {
     bytes[0] = 255;
     properties['key'] = 'changed';
     expect(message.payload, [1, 2]);
-    expect(message.topic('d'), 'devices/d/messages/events/key=original/');
+    expect(
+      telemetryTopic(message, 'd'),
+      'devices/d/messages/events/key=original/',
+    );
     expect(() => message.payload[0] = 4, throwsUnsupportedError);
   });
 
@@ -48,7 +51,10 @@ void main() {
     expect(TelemetryMessage(Uint8List(0x3ffff)).payload.length, 0x3ffff);
     expect(() => TelemetryMessage(Uint8List(0x40000)), throwsArgumentError);
     expect(
-      () => TelemetryMessage([], properties: {'key': '☕' * 8000}).topic('d'),
+      () => telemetryTopic(
+        TelemetryMessage([], properties: {'key': '☕' * 8000}),
+        'd',
+      ),
       throwsArgumentError,
     );
   });

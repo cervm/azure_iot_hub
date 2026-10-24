@@ -9,11 +9,8 @@ import 'package:azure_iot_hub/azure_iot_hub.dart';
 import 'package:azure_iot_hub/src/authentication/iot_hub_connection_string.dart';
 import 'package:azure_iot_hub/src/cancellation.dart'
     show unwrapCancellationToken;
-import 'package:azure_iot_hub/src/device_client.dart';
-import 'package:azure_iot_hub/src/pending_operation.dart';
-import 'package:azure_iot_hub/src/telemetry_message.dart';
+import 'package:azure_iot_hub/src/internal_client.dart';
 import 'package:azure_iot_hub/src/transport/connection_diagnostics.dart';
-import 'package:azure_iot_hub/src/transport/mqtt_transport_type.dart';
 import 'package:cancellation_token/cancellation_token.dart'
     show CancelledException;
 import 'package:test/test.dart';
@@ -31,7 +28,7 @@ void main() {
 void transportTests(MqttTransportType transport) {
   late MqttPeerServer server;
   late ManualTime time;
-  late DeviceClient client;
+  late InternalClient client;
   late SasTokenProvider provider;
   late Duration wallClockOffset;
   late int calls;
@@ -50,7 +47,7 @@ void transportTests(MqttTransportType transport) {
     wallClockOffset = Duration.zero;
     calls = 0;
     provider = (_, _) async => token();
-    client = DeviceClient(
+    client = InternalClient(
       IotHubConnectionString.withTokenProvider(
         hostName: 'hub.azure-devices.net',
         deviceId: 'device-1',

@@ -14,9 +14,8 @@ Verified on 24 October 2026:
 
 ## Initial source/test map
 
-These are reference points for the SDK. Prototype, authentication and internal
-telemetry, WSS and twin operation coverage are listed below. Public device APIs
-remain unimplemented.
+These are reference points for the SDK. Public API, prototype, authentication,
+telemetry, WSS and twin operation coverage are listed below.
 
 | Behaviour | C# reference at the pinned commit | Dart coverage to add |
 | --- | --- | --- |
@@ -64,6 +63,45 @@ remain unimplemented.
   cancel or acknowledgements never arrive. Cancellation after submission must
   preserve delivery uncertainty.
 
+## Public device API
+
+The package exports [DeviceClient](../lib/src/device_client.dart), its message,
+twin, cancellation and failure types, `MqttTransportType` and `SasTokenProvider`.
+`DeviceClient.fromConnectionString` corresponds to C# `CreateFromConnectionString`;
+`withTokenProvider` exposes the existing asynchronous credential acquisition.
+Named constructors and `Future` methods without an `Async` suffix adapt the API to
+Dart. Calls delegate to [InternalClient](../lib/src/internal_client.dart), retaining
+the tested retry, deadline and transport behaviour.
+
+**Agreed twin shape:** `getTwin()` returns `Twin` with `properties.desired` and
+`properties.reported`, following C# `DeviceClient.GetTwinAsync` and
+`shared/src/Twin.cs`. Collections are ordinary Dart maps, preserving `$version`,
+`$metadata` and nulls, rather than reproducing `TwinCollection`'s dynamic API.
+Only device-visible properties are included. Desired callbacks continue to deliver
+patches; no snapshot merging or reconciliation was added.
+
+**Agreed error surface:** retain one `OperationFailure` with `reason`, `delivery`
+and optional `statusCode`, rather than exporting a C#-style exception hierarchy.
+This is a Dart API adaptation, not a change to retry classification or delivery
+uncertainty. Argument and local JSON validation retain Dart's `ArgumentError` and
+`FormatException`. MQTT publication-topic validation failures are translated to a
+redacted `ArgumentError`, including device IDs containing `+` or `#`; the existing
+rejection before submission is unchanged. Credential parser, MQTT types, mutable
+diagnostics, pending-work counters and injected clocks/randomness remain internal.
+
+Public construction exposes the existing transport, positive timeout, pending-work,
+port and TLS trust options. Defaults remain four minutes per operation, 60 seconds
+per connection/twin response wait, 16 pending operations and 4 MiB of pending bytes.
+`close()` permanently shuts down the client and is idempotent; it owns cleanup and
+requires no separate disposal call.
+
+[Public API tests](../test/device_client_api_test.dart) use the package library to
+exercise telemetry, GET/PATCH, desired callbacks, SAS providers, cancellation,
+capacity and service failure status over controlled TLS and WSS peers. Lifecycle
+races remain covered by the existing deterministic internal suites. The live tests
+and [example](../example/azure_iot_hub_example.dart) now use the public import;
+the public API migration has not yet been run against a real hub.
+
 ## Prototype coverage
 
 [mqtt_cancellation_test.dart](../test/prototype/mqtt_cancellation_test.dart) adapts
@@ -93,7 +131,7 @@ with deterministic timers. Dependency cancellation types remain internal.
 [CancellationTokenSource](../lib/src/cancellation.dart) owns cancellation;
 its `token` is read-only and exposes `isCancellationRequested`. This follows
 [.NET's cancellation model](https://learn.microsoft.com/en-us/dotnet/standard/threading/cancellation-in-managed-threads).
-Only these SDK types are exported; an internal bridge connects them to the existing
+Only SDK-owned cancellation types are exported; an internal bridge connects them to the existing
 operation lifecycle without exposing dependency types or exceptions.
 
 Cancellation is optional, permanent and idempotent. One token may serve multiple
@@ -122,8 +160,8 @@ All C# paths below are relative to `iothub/device/` at the pinned commit.
 | Fixed expiry example | `tests/Authentication/HsmAuthentication/SasTokenBuilderTest.cs` | `TestBuildExpiry_ShouldReturnExpireOn` in the SAS tests |
 | Cached token, refresh threshold and device defaults | `src/Authentication/AuthenticationWithTokenRefresh.cs`, `DeviceAuthenticationWithTokenRefresh.cs` in the same directory; matching files in `tests/Authentication/` with `Tests.cs` suffix | [SAS cache](../lib/src/authentication/sas_token_cache.dart), [adapted tests](../test/authentication/sas_token_cache_test.dart) |
 | Asynchronous token acquisition, serialization and changed lifetime | `AuthenticationWithTokenRefresh.SafeCreateNewToken` and `GetTokenAsync`; `AuthenticationWithTokenRefreshTests` initial-property, concurrent-update and new-TTL cases | `IotHubConnectionString.withTokenProvider`, [provider tests](../test/authentication/sas_token_provider_test.dart) |
-| Provider failures and connection recovery | `src/Pipeline/ErrorDelegatingHandler.cs`, `src/Transport/Mqtt/MqttIotHubAdapter.cs` | `DeviceClient._connect`; [provider lifecycle tests](../test/transport/token_provider_test.dart) over TLS and WSS |
-| Credential requests on MQTT CONNECT; fixed SAS passthrough | `src/Authentication/IotHubConnectionString.Core.cs`, `src/Transport/Mqtt/MqttIotHubAdapter.cs` | `DeviceClient._connect`; reconnect and fixed-token cases in the [transport tests](../test/transport/device_client_test.dart) |
+| Provider failures and connection recovery | `src/Pipeline/ErrorDelegatingHandler.cs`, `src/Transport/Mqtt/MqttIotHubAdapter.cs` | `InternalClient._connect`; [provider lifecycle tests](../test/transport/token_provider_test.dart) over TLS and WSS |
+| Credential requests on MQTT CONNECT; fixed SAS passthrough | `src/Authentication/IotHubConnectionString.Core.cs`, `src/Transport/Mqtt/MqttIotHubAdapter.cs` | `InternalClient._connect`; reconnect and fixed-token cases in the [transport tests](../test/transport/device_client_test.dart) |
 
 The named parser cases retain the upstream scenarios for host, device ID, complex
 legacy IDs, credentials, policy name, gateway, missing properties and conflicting
@@ -148,13 +186,13 @@ the threshold reuse the token; requests at or after it acquire a new token. SAS 
 use wall-clock time, independently of each operation's existing deadline.
 There is no renewal timer and no assumed service-side grace period.
 
-The internal async provider receives the hub hostname and suggested TTL, matching
+The async provider receives the hub hostname and suggested TTL, matching
 C#'s `SafeCreateNewToken`. It may choose a different lifetime; the returned token's
 expiry controls caching. Acquisition is serialized per client, with eligibility
 rechecked after waiting. Waiters retry acquisition after a provider failure rather
 than inheriting that failure. Tokens already eligible for refresh cause the next
 waiter to acquire again. The provider owns any external resources and I/O timeouts;
-there is no shared authentication-object disposal API in this internal callback model.
+there is no shared authentication-object disposal API in this callback model.
 
 As in C#, the callback receives no cancellation token. Cancelling one caller leaves
 shared acquisition running. Acquisition consumes the existing connection and
@@ -179,7 +217,7 @@ fractional expiry, buffer rounding and unchanged fixed SAS tokens after expiry.
 Errors use Dart `FormatException` without the input as its source. Diagnostic
 `toString()` methods redact credentials; they do not provide
 C#'s connection-string serialization. These classes are internal and unexported.
-Provider configuration and public error types remain internal pending API review.
+Provider configuration and SDK failure types are exposed through the public API.
 Transport authentication is covered below. The protocol reference is Microsoft's
 [SAS authentication contract](https://learn.microsoft.com/en-us/azure/iot-hub/authenticate-authorize-sas).
 
@@ -189,7 +227,7 @@ All C# paths below are relative to `iothub/device/` at the pinned commit.
 
 | Responsibility | C# source | Dart implementation / tests |
 | --- | --- | --- |
-| CONNECT identity, credentials, persistent session, keepalive and CONNACK mapping | `src/Transport/Mqtt/MqttIotHubAdapter.cs`, `src/Transport/Mqtt/ClientSettings/MqttTransportSettings.cs`, `src/Common/Api/ClientApiVersionHelper.cs` | [Device client](../lib/src/device_client.dart), [MQTT adapter](../lib/src/transport/mqtt_transport.dart), [transport tests](../test/transport/device_client_test.dart) |
+| CONNECT identity, credentials, persistent session, keepalive and CONNACK mapping | `src/Transport/Mqtt/MqttIotHubAdapter.cs`, `src/Transport/Mqtt/ClientSettings/MqttTransportSettings.cs`, `src/Common/Api/ClientApiVersionHelper.cs` | [Internal client](../lib/src/internal_client.dart), [MQTT adapter](../lib/src/transport/mqtt_transport.dart), [transport tests](../test/transport/device_client_test.dart) |
 | Telemetry topic, system/application properties and byte limits | `MqttIotHubAdapter.PopulateMessagePropertiesFromMessage`, `src/Common/UrlEncodedDictionarySerializer.cs`, `src/Common/Utils.cs` | [Message](../lib/src/telemetry_message.dart), [property tests](../test/telemetry_message_test.dart), binary wire tests over both transports |
 | Retry parameters and transient/security failure classification | `src/Pipeline/RetryDelegatingHandler.cs`, `src/Pipeline/ErrorDelegatingHandler.cs`, `src/RetryPolicies/ExponentialBackoff.cs`, `src/TransientFaultHandling/ExponentialBackoffRetryStrategy.cs` | Internal recovery uses 100 ms minimum, 100 ms delta with 80–120% jitter, and a 10 s cap; controlled refusal/disconnect/TLS tests |
 | Pre-cancelled open/send and username without model ID | `tests/Transport/Mqtt/MqttTransportHandlerTests.cs`, `tests/Transport/Mqtt/MqttIotHubAdapterTest.cs` | Named adapted cases over both transports, retaining MIT notices |
@@ -218,7 +256,7 @@ All C# paths are relative to `iothub/device/` at the pinned commit.
 
 | Responsibility | C# source | Dart implementation / tests |
 | --- | --- | --- |
-| WSS endpoint, port and MQTT subprotocol | `src/Transport/Mqtt/MqttTransportHandler.cs`: `CreateWebSocketChannelFactory`; `src/Transport/WebSocketConstants.cs` | [WSS connection](../lib/src/transport/owned_websocket_connection.dart), explicit internal transport selection, port 443 and `/$iothub/websocket` with `mqtt` |
+| WSS endpoint, port and MQTT subprotocol | `src/Transport/Mqtt/MqttTransportHandler.cs`: `CreateWebSocketChannelFactory`; `src/Transport/WebSocketConstants.cs` | [WSS connection](../lib/src/transport/owned_websocket_connection.dart), explicit transport selection, port 443 and `/$iothub/websocket` with `mqtt` |
 | Runtime WebSocket I/O and MQTT framing | `src/Transport/Mqtt/ClientWebSocketChannel.cs`; `MqttTransportHandler.CreateWebSocketChannelFactory` | Dart `WebSocket` handles HTTP upgrade/framing; owned TLS socket and the shared MQTT decoder preserve cancellation and bounds |
 | Writes before connection and after close | `tests/Transport/Mqtt/ClientWebSocketChannelTests.cs` | Named adaptations in [WSS tests](../test/transport/websocket_test.dart); `WriteAfterCloseTest` is ignored upstream but runs here |
 
@@ -248,20 +286,19 @@ for scope and limits.
 
 | Responsibility | C# source at the pinned commit | Dart implementation / tests |
 | --- | --- | --- |
-| Subscribe on open, GET topic, UUID, response correlation, 60-second response wait and status handling | `iothub/device/src/Transport/Mqtt/MqttTransportHandler.cs`: `OpenInternalAsync`, `SubscribeTwinResponsesAsync`, `SendTwinGetAsync`, `SendTwinRequestAsync` | [Device client](../lib/src/device_client.dart), [response parsing](../lib/src/twin.dart), [transport tests](../test/transport/twin_get_test.dart) |
+| Subscribe on open, GET topic, UUID, response correlation, 60-second response wait and status handling | `iothub/device/src/Transport/Mqtt/MqttTransportHandler.cs`: `OpenInternalAsync`, `SubscribeTwinResponsesAsync`, `SendTwinGetAsync`, `SendTwinRequestAsync` | [Internal client](../lib/src/internal_client.dart), [response parsing](../lib/src/twin.dart), [transport tests](../test/transport/twin_get_test.dart) |
 | PATCH topic, JSON serialization and successful empty response | `iothub/device/src/Transport/Mqtt/MqttTransportHandler.cs`: `SendTwinPatchAsync`, `SendTwinRequestAsync`; `shared/src/TwinCollectionJsonConverter.cs`; `iothub/device/src/JsonSerializerSettingsInitializer.cs` | `updateReportedProperties` and `encodeReportedProperties`; [PATCH transport tests](../test/transport/twin_patch_test.dart) preserve null deletion values and ISO-looking strings, accept empty 204 and upstream's empty 200 |
 | PUBACK and SUBACK completion | `iothub/device/src/Transport/Mqtt/MqttIotHubAdapter.cs`: `SendMessageAsync`, `ProcessSubAck` | GET and PATCH wait for PUBACK and the correlated response in either order; failed SUBACK follows the agreed deviation above |
 | Timeout retry and throttling | `iothub/device/src/Pipeline/ErrorDelegatingHandler.cs`, `RetryDelegatingHandler.cs` | Transport response timeouts and 429 retry within the unchanged operation deadline; other service errors, including 5xx, are non-retryable |
-| Desired/reported collections and default values | `shared/src/TwinProperties.cs`, `TwinCollection.cs` in the same directory | Internal `TwinProperties`; [JSON tests](../test/twin_test.dart) preserve metadata, versions, nested values and ISO-looking strings |
+| Desired/reported collections and default values | `shared/src/TwinProperties.cs`, `TwinCollection.cs` in the same directory | `TwinProperties`; [JSON tests](../test/twin_test.dart) preserve metadata, versions, nested values and ISO-looking strings |
 | Open subscription, GET/PATCH pre-cancellation, happy path, service failure and timeout | `iothub/device/tests/Transport/Mqtt/MqttTransportHandlerTests.cs` | Named adaptations in GET/PATCH suites over both transports; timeout cases include the outer client's retry behavior |
 | Desired callback registration, replacement and removal | `iothub/device/src/InternalClient.cs`: `SetDesiredPropertyUpdateCallbackAsync`; `iothub/device/tests/DeviceClientTwinApiTests.cs` | `setDesiredPropertyUpdateCallback`; [desired-property transport tests](../test/transport/desired_properties_test.dart) retain first-registration, replacement, unsubscribe and callback case names |
 | Desired subscription and dispatch | `MqttTransportHandler.cs`: `EnableTwinPatchAsync`, `DisableTwinPatchAsync`, `HandleIncomingTwinPatchAsync`; `InternalClient.OnReportedStatePatchReceived` | QoS 1 subscription, raw JSON patches and PUBACK after synchronous dispatch; named pre-cancellation/timeout adaptations and Dart lifecycle tests |
 | Desired subscription recovery | `RetryDelegatingHandler.HandleDisconnectAsync` | Restores the subscription without GET or version reconciliation; controlled tests cover recovery deadlines and callback-triggered retirement |
 
-The public twin model is not settled. This increment returns the properties
-section through an internal type. It does not implement C#'s dynamic collection
-API. PATCH accepts an internal Dart map of JSON
-values. To enforce the existing byte budget, it captures serialized bytes at
+The public `Twin` wraps the returned properties and uses Dart maps in place of
+C#'s dynamic collection API. PATCH accepts a Dart map of JSON values. To enforce
+the existing byte budget, it captures serialized bytes at
 submission and reuses them across retries; C# serializes a mutable `TwinCollection`
 inside each transport attempt. Invalid JSON diagnostics omit device properties.
 See [twin notes](twins.md) for bounded storage and remaining live validation.
