@@ -1,7 +1,8 @@
 # Internal telemetry transport
 
 The unexported `DeviceClient` now supports connection strings, SAS authentication,
-implicit open, twin retrieval and QoS 1 telemetry over TLS on port 8883.
+implicit open, twin retrieval, reported-property updates and QoS 1 telemetry over
+TLS on port 8883.
 A successful send means PUBACK arrived; cancellation or failure after submission
 reports unknown delivery.
 Retries can produce duplicate telemetry, as with C# QoS 1 sends.
@@ -78,7 +79,8 @@ and reported `+1: All tests passed!`. This confirms SAS authentication, MQTT/TLS
 connection and one QoS 1 publish through PUBACK. Live reconnect, token renewal and
 downstream routing/consumption require separate validation.
 
-The previous live smoke result predates the connection-time twin subscription;
-that added step and [twin retrieval](twin-retrieval.md) have only controlled validation.
+The previous telemetry result predates the connection-time twin subscription.
+The user's subsequent successful live PATCH test covers that subscription,
+reported-property updates, twin retrieval and cleanup; see [twin notes](twins.md).
 External token replacement, WSS, remaining twin operations and public API design
 remain subsequent work. The live SAS expiry test is deferred.

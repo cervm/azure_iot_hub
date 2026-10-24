@@ -5,6 +5,26 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+/// Encodes a reported-property patch, retaining null values for deletion.
+///
+/// Captures nested values before queuing so retries use the same bytes.
+Uint8List encodeReportedProperties(Map<String, Object?> properties) {
+  try {
+    final payload = utf8.encode(jsonEncode(properties));
+    if (payload.length > 0x3ffff) {
+      throw ArgumentError(
+        'Reported-property payload exceeds the C# MQTT limit.',
+      );
+    }
+    return payload.asUnmodifiableView();
+  } on JsonUnsupportedObjectError {
+    // Serializer errors can otherwise include property values or custom objects.
+    throw const FormatException(
+      'Reported properties must be JSON serializable.',
+    );
+  }
+}
+
 /// The desired and reported property collections returned by a twin GET.
 ///
 /// Collection maps retain `$version`, `$metadata`, nested values and nulls.

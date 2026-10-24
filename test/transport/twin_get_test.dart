@@ -14,22 +14,6 @@ import '../prototype/support/manual_time.dart';
 import '../prototype/support/mqtt_peer.dart';
 import 'support/device_test_support.dart';
 
-String requestId(Packet packet) =>
-    Uri.splitQueryString(packet.topic.split('?').last)[r'$rid']!;
-
-Future<void> respond(
-  MqttPeer peer,
-  String rid, {
-  int status = 200,
-  String body = '{"desired":{},"reported":{}}',
-}) async {
-  await peer.publish(
-    '${r'$iothub/twin/res/'}$status/?${r'$rid='}$rid',
-    utf8.encode(body),
-  );
-  await peer.nextPacket(4); // The client acknowledges inbound QoS 1 responses.
-}
-
 void main() {
   late MqttPeerServer server;
   late ManualTime time;

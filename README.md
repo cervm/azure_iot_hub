@@ -29,18 +29,17 @@ bounded pending work. Shared-key SAS tokens are cached and refreshed on reconnec
 when eligible, following C#; renewal does not schedule disconnects. See the
 [transport notes](docs/telemetry-transport.md).
 
-Internal twin retrieval now subscribes to responses during open and completes a
-GET after PUBACK and the matching service response. Controlled tests cover
-throttling, service errors, cancellation, reconnect and response ordering. See the
-[twin retrieval notes](docs/twin-retrieval.md).
+Internal twin retrieval and reported-property updates subscribe to responses
+during open and complete after PUBACK and the matching service response. Controlled
+tests cover throttling, service errors, cancellation, reconnect, response ordering
+and JSON patch semantics. See the [twin notes](docs/twins.md).
 
 The prototype uses the SDK's internal operation lifecycle for linked cancellation,
 finite deadlines and delivery uncertainty. `cancellation_token` remains an internal
 dependency; its types are not exported by this package.
 
-External token replacement, secure WebSockets, reported-property updates,
-desired-property notifications/reconciliation and the public API remain
-unimplemented.
+External token replacement, secure WebSockets, desired-property notifications/
+reconciliation and the public API remain unimplemented.
 
 The live Azure telemetry smoke test has passed in a user-run test. Linux ARM64
 and long-running reliability validation remain outstanding.
@@ -64,6 +63,17 @@ To validate twin retrieval separately with the same environment configuration:
 AZURE_IOT_RUN_INTEGRATION=1 fvm dart test test/integration/twin_test.dart
 ```
 
-This reads desired/reported properties without changing them. Run live tests
-sequentially when sharing a device identity; simultaneous clients can disconnect
-each other. Live twin retrieval and the longer SAS expiry test remain unverified.
+This reads desired/reported properties without changing them. To exercise updates:
+
+```sh
+AZURE_IOT_RUN_INTEGRATION=1 fvm dart test test/integration/reported_properties_test.dart
+```
+
+The update test writes a uniquely named `sdkPatchTest_...` reported property,
+checks nested merge/deletion, and deletes it in `finally`. It advances the reported
+version; failed network cleanup may leave the test property behind.
+
+Run live tests sequentially when sharing a device identity; simultaneous clients
+can disconnect each other. The user-run PATCH test passed, verifying updates,
+twin retrieval and cleanup; see the [validation notes](docs/twins.md). Live
+reconnect and the longer SAS expiry test remain unverified.

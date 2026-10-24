@@ -88,11 +88,29 @@ final class DeviceClient {
     CancellationToken? cancellationToken,
   }) async => (await _submit(_OperationKind.twinGet, null, cancellationToken))!;
 
+  /// Updates reported properties after PUBACK and a matching service response.
+  ///
+  /// Captures [properties] as a JSON patch when called. Null values delete
+  /// properties; omitted properties are unchanged. Retries use the same patch
+  /// within the original operation deadline.
+  Future<void> updateReportedProperties(
+    Map<String, Object?> properties, {
+    CancellationToken? cancellationToken,
+  }) async {
+    await _submit(
+      _OperationKind.twinPatch,
+      null,
+      cancellationToken,
+      reportedProperties: properties,
+    );
+  }
+
   Future<TwinProperties?> _submit(
     _OperationKind kind,
     TelemetryMessage? message,
-    CancellationToken? token,
-  ) {
+    CancellationToken? token, {
+    Map<String, Object?>? reportedProperties,
+  }) {
     final reason = _closed
         ? OperationFailureReason.closed
         : (token?.isCancelled ?? false)
@@ -101,13 +119,23 @@ final class DeviceClient {
     if (reason != null) {
       return Future.error(OperationFailure(reason, DeliveryState.notSubmitted));
     }
-    final topic = message?.topic(credentials.deviceId);
+    final topic = switch (kind) {
+      _OperationKind.twinGet => r'$iothub/twin/GET/?$rid=',
+      _OperationKind.twinPatch =>
+        r'$iothub/twin/PATCH/properties/reported/?$rid=',
+      _OperationKind.telemetry => message!.topic(credentials.deviceId),
+      _OperationKind.open => null,
+    };
     if (topic != null) PublicationTopic(topic);
-    final size = kind == _OperationKind.twinGet
-        ? r'$iothub/twin/GET/?$rid='.length + 36 + 8
-        : message == null
+    final payload = kind == _OperationKind.twinPatch
+        ? encodeReportedProperties(reportedProperties!)
+        : message?.payload ?? const <int>[];
+    final size = topic == null
         ? 0
-        : message.payload.length + utf8.encode(topic!).length + 8;
+        : payload.length +
+              utf8.encode(topic).length +
+              (kind.isTwin ? 36 : 0) +
+              8;
     if (_pending.length >= maxPending ||
         _pendingBytes + size > maxPendingBytes) {
       return Future.error(
@@ -124,7 +152,7 @@ final class DeviceClient {
     late final _Operation operation;
     operation = _Operation(
       kind,
-      message,
+      payload,
       topic,
       size,
       PendingOperation<TwinProperties?>(
@@ -214,8 +242,7 @@ final class DeviceClient {
         );
         if (operation == null) return;
         operation.packetId = null;
-        if (operation.kind == _OperationKind.twinGet &&
-            !operation.completion.isCompleted) {
+        if (operation.kind.isTwin && !operation.completion.isCompleted) {
           if (operation.response != null) {
             _finishTwinResponse(operation);
           } else {
@@ -273,7 +300,6 @@ final class DeviceClient {
       if (operation.completion.isCompleted || operation.packetId != null) {
         continue;
       }
-      final message = operation.message;
       if (operation.kind == _OperationKind.open) {
         operation.completion.complete(null);
         _release(operation);
@@ -281,15 +307,13 @@ final class DeviceClient {
       }
       if (operation.requestId != null || operation.retry != null) continue;
       try {
-        final bytes = Uint8Buffer();
+        final bytes = Uint8Buffer()..addAll(operation.payload);
         var topic = operation.topic;
-        if (operation.kind == _OperationKind.twinGet) {
+        if (operation.kind.isTwin) {
           final requestId = newTwinRequestId();
           operation.requestId = requestId;
           _twinRequests[requestId] = operation;
-          topic = '${r'$iothub/twin/GET/?$rid='}$requestId';
-        } else {
-          bytes.addAll(message!.payload);
+          topic = '$topic$requestId';
         }
         operation.completion.markSubmitted();
         final id = attempt.transport.publishMessage(
@@ -336,6 +360,9 @@ final class DeviceClient {
         OperationFailureReason.service,
         statusCode: response.status,
       );
+    } else if (operation.kind == _OperationKind.twinPatch) {
+      // C# ignores successful PATCH response bodies, including empty 204s.
+      operation.completion.complete(null);
     } else {
       try {
         operation.completion.complete(
@@ -449,11 +476,18 @@ final class _Attempt(final MqttTransport transport) {
   StreamSubscription<List<MqttReceivedMessage<MqttMessage>>>? updates;
 }
 
-enum _OperationKind { open, telemetry, twinGet }
+enum _OperationKind {
+  open,
+  telemetry,
+  twinGet,
+  twinPatch;
+
+  bool get isTwin => this == twinGet || this == twinPatch;
+}
 
 final class _Operation(
   final _OperationKind kind,
-  final TelemetryMessage? message,
+  final List<int> payload,
   final String? topic,
   final int size,
   final PendingOperation<TwinProperties?> completion,

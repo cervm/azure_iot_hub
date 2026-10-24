@@ -15,8 +15,8 @@ Verified on 24 October 2026:
 ## Initial source/test map
 
 These are reference points for the SDK. Prototype, authentication and internal
-telemetry and twin retrieval coverage are listed below. Public device APIs,
-reported-property updates and desired-property recovery remain unimplemented.
+telemetry and twin operation coverage are listed below. Public device APIs and
+desired-property recovery remain unimplemented.
 
 | Behaviour | C# reference at the pinned commit | Dart coverage to add |
 | --- | --- | --- |
@@ -152,21 +152,24 @@ CONNACK server-unavailable are retryable. Native task/socket cleanup, connection
 bounds and queue limits adapt C#'s threading mechanics to Dart; see the
 [transport notes](telemetry-transport.md) for test scope and outstanding validation.
 
-## Internal twin retrieval coverage
+## Internal twin operation coverage
 
 | Responsibility | C# source at the pinned commit | Dart implementation / tests |
 | --- | --- | --- |
 | Subscribe on open, GET topic, UUID, response correlation, 60-second response wait and status handling | `iothub/device/src/Transport/Mqtt/MqttTransportHandler.cs`: `OpenInternalAsync`, `SubscribeTwinResponsesAsync`, `SendTwinGetAsync`, `SendTwinRequestAsync` | [Device client](../lib/src/device_client.dart), [response parsing](../lib/src/twin.dart), [TLS tests](../test/transport/twin_get_test.dart) |
-| PUBACK and SUBACK completion | `iothub/device/src/Transport/Mqtt/MqttIotHubAdapter.cs`: `SendMessageAsync`, `ProcessSubAck` | GET waits for PUBACK and the correlated response in either order; failed SUBACK follows the agreed deviation above |
+| PATCH topic, JSON serialization and successful empty response | `iothub/device/src/Transport/Mqtt/MqttTransportHandler.cs`: `SendTwinPatchAsync`, `SendTwinRequestAsync`; `shared/src/TwinCollectionJsonConverter.cs`; `iothub/device/src/JsonSerializerSettingsInitializer.cs` | `updateReportedProperties` and `encodeReportedProperties`; [PATCH TLS tests](../test/transport/twin_patch_test.dart) preserve null deletion values and ISO-looking strings, accept empty 204 and upstream's empty 200 |
+| PUBACK and SUBACK completion | `iothub/device/src/Transport/Mqtt/MqttIotHubAdapter.cs`: `SendMessageAsync`, `ProcessSubAck` | GET and PATCH wait for PUBACK and the correlated response in either order; failed SUBACK follows the agreed deviation above |
 | Timeout retry and throttling | `iothub/device/src/Pipeline/ErrorDelegatingHandler.cs`, `RetryDelegatingHandler.cs` | Transport response timeouts and 429 retry within the unchanged operation deadline; other service errors, including 5xx, are non-retryable |
 | Desired/reported collections and default values | `shared/src/TwinProperties.cs`, `TwinCollection.cs` in the same directory | Internal `TwinProperties`; [JSON tests](../test/twin_test.dart) preserve metadata, versions, nested values and ISO-looking strings |
-| Open subscription, GET pre-cancellation, happy path, service failure and timeout | `iothub/device/tests/Transport/Mqtt/MqttTransportHandlerTests.cs` | Named adaptations in the TLS suite; the timeout case includes the outer client's retry behavior |
+| Open subscription, GET/PATCH pre-cancellation, happy path, service failure and timeout | `iothub/device/tests/Transport/Mqtt/MqttTransportHandlerTests.cs` | Named adaptations in both TLS suites; timeout cases include the outer client's retry behavior |
 
 The public twin model is not settled. This increment returns the properties
 section through an internal type. It does not implement C#'s dynamic collection
-API, reported-property updates or desired-property notifications. Malformed JSON
-errors omit device properties. See [twin retrieval notes](twin-retrieval.md) for
-bounded response storage and remaining live validation.
+API or desired-property notifications. PATCH accepts an internal Dart map of JSON
+values. To enforce the existing byte budget, it captures serialized bytes at
+submission and reuses them across retries; C# serializes a mutable `TwinCollection`
+inside each transport attempt. Invalid JSON diagnostics omit device properties.
+See [twin notes](twins.md) for bounded storage and remaining live validation.
 
 ## Upstream maintenance
 

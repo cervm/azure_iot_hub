@@ -50,3 +50,19 @@ String connectPassword(Packet packet) {
   expect(fields, hasLength(3));
   return fields.last;
 }
+
+String requestId(Packet packet) =>
+    Uri.splitQueryString(packet.topic.split('?').last)[r'$rid']!;
+
+Future<void> respond(
+  MqttPeer peer,
+  String rid, {
+  int status = 200,
+  String body = '{"desired":{},"reported":{}}',
+}) async {
+  await peer.publish(
+    '${r'$iothub/twin/res/'}$status/?${r'$rid='}$rid',
+    utf8.encode(body),
+  );
+  await peer.nextPacket(4); // The client acknowledges inbound QoS 1 responses.
+}

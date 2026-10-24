@@ -18,3 +18,6 @@
 - Add internal twin retrieval, connection-time response subscription, correlated
   service responses, throttling retries and bounded response waits. Reject failed
   subscriptions as agreed; add adapted C# cases and an opt-in live twin test.
+- Add internal reported-property patches with JSON snapshots, C# response handling
+  and shared retry/deadline/capacity controls. Add adapted PATCH tests and an opt-in
+  live test that verifies merge/deletion and cleans up its unique test property.
