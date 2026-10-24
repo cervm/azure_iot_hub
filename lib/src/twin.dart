@@ -2,8 +2,9 @@
 // Licensed under the MIT license; see third_party/azure-iot-sdk-csharp-LICENSE.
 // Adapted from TwinProperties and MqttTransportHandler; see docs/upstream.md.
 import 'dart:convert';
-import 'dart:math';
 import 'dart:typed_data';
+
+import 'package:uuid/uuid.dart';
 
 /// Receives a desired-property patch, including its `$version` and null values.
 ///
@@ -110,14 +111,4 @@ final class TwinResponse(
 }
 
 /// Creates a UUID v4 request identifier, matching C#'s Guid.NewGuid format.
-String newTwinRequestId() {
-  final random = Random.secure();
-  final bytes = List.generate(16, (_) => random.nextInt(256));
-  bytes[6] = (bytes[6] & 15) | 64;
-  bytes[8] = (bytes[8] & 63) | 128;
-  final hex = bytes
-      .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
-      .join();
-  return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
-      '${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
-}
+String newTwinRequestId() => const Uuid().v4();
