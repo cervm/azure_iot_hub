@@ -1,8 +1,8 @@
 # Internal telemetry transport
 
 The unexported `DeviceClient` now supports connection strings, SAS authentication,
-implicit open, twin retrieval, reported-property updates and QoS 1 telemetry over
-TLS on port 8883.
+implicit open, twin retrieval, reported-property updates, desired-property callbacks
+and QoS 1 telemetry over TLS on port 8883.
 A successful send means PUBACK arrived; cancellation or failure after submission
 reports unknown delivery.
 Retries can produce duplicate telemetry, as with C# QoS 1 sends.
@@ -17,8 +17,8 @@ another MQTT client enables the package's global logger.
 
 - Every operation has one finite deadline, four minutes by default, including
   reconnect waits. Caller cancellation does not stop shared connection recovery.
-- Submitted cancelled packets retain capacity until PUBACK or their original
-  deadline. Expiry retires the connection and allows other operations to retry.
+- Submitted cancelled packets retain capacity until acknowledgement or their
+  original deadline. Expiry retires the connection and allows other operations to retry.
 - The current internal defaults allow 16 pending operations and 4 MiB of pending
   payload/topic/frame bytes. Both limits are configurable and checked before
   submission. They bound retained work, not exact process RSS.
@@ -36,6 +36,8 @@ another MQTT client enables the package's global logger.
 - Closing is terminal, cancels pending operations and stops recovery. TLS,
   credential and protocol failures stop automatic recovery and fail pending work;
   a later explicit operation may try again. Network failures retry.
+  Desired-patch decoding or synchronous callback failures retire the connection
+  and recover its subscriptions, following C#; see [twin notes](twins.md).
 
 Queue defaults and connection bounds are internal tuning values, not a published
 configuration contract. There is no offline persistence.
@@ -49,8 +51,7 @@ that window or signs a fresh one inside it. The threshold is approximately
 
 Reaching the renewal window or token expiry does not schedule a disconnect.
 If IoT Hub closes the session, ordinary recovery requests credentials again.
-No service-side grace period is assumed. This agreed C# behaviour takes priority
-over PSW-252's proactive-renewal wording; see the [source mapping](upstream.md).
+No service-side grace period is assumed; see the C# [source mapping](upstream.md).
 
 External SAS bytes are passed unchanged, including after the parser's existing
 clock-skew check; the service determines validity. External token replacement
@@ -82,5 +83,5 @@ downstream routing/consumption require separate validation.
 The previous telemetry result predates the connection-time twin subscription.
 The user's subsequent successful live PATCH test covers that subscription,
 reported-property updates, twin retrieval and cleanup; see [twin notes](twins.md).
-External token replacement, WSS, remaining twin operations and public API design
+External token replacement, WSS and public API design
 remain subsequent work. The live SAS expiry test is deferred.

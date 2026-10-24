@@ -5,6 +5,27 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+/// Receives a desired-property patch, including its `$version` and null values.
+///
+/// Invocation is synchronous. As in the pinned C# callback dispatcher, returned
+/// futures are not awaited; applications own any asynchronous work they start.
+typedef DesiredPropertyUpdateCallback = void Function(
+  Map<String, Object?> patch,
+);
+
+/// Decodes a desired-property notification without merging or filtering versions.
+Map<String, Object?> decodeDesiredPropertyPatch(List<int> payload) {
+  try {
+    final value = jsonDecode(utf8.decode(payload));
+    if (value is! Map<String, dynamic>) {
+      throw const FormatException('Expected desired-property patch.');
+    }
+    return Map.unmodifiable(value);
+  } on FormatException {
+    throw const FormatException('Invalid desired-property patch.');
+  }
+}
+
 /// Encodes a reported-property patch, retaining null values for deletion.
 ///
 /// Captures nested values before queuing so retries use the same bytes.

@@ -32,14 +32,16 @@ when eligible, following C#; renewal does not schedule disconnects. See the
 Internal twin retrieval and reported-property updates subscribe to responses
 during open and complete after PUBACK and the matching service response. Controlled
 tests cover throttling, service errors, cancellation, reconnect, response ordering
-and JSON patch semantics. See the [twin notes](docs/twins.md).
+and JSON patch semantics. Desired-property callbacks deliver patches and restore
+their subscription after reconnect. The application owns snapshot retrieval and
+version reconciliation. See the [twin notes](docs/twins.md).
 
 The prototype uses the SDK's internal operation lifecycle for linked cancellation,
 finite deadlines and delivery uncertainty. `cancellation_token` remains an internal
 dependency; its types are not exported by this package.
 
-External token replacement, secure WebSockets, desired-property notifications/
-reconciliation and the public API remain unimplemented.
+External token replacement, secure WebSockets and the public API remain
+unimplemented.
 
 The live Azure telemetry smoke test has passed in a user-run test. Linux ARM64
 and long-running reliability validation remain outstanding.

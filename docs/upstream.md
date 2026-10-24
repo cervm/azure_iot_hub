@@ -16,7 +16,7 @@ Verified on 24 October 2026:
 
 These are reference points for the SDK. Prototype, authentication and internal
 telemetry and twin operation coverage are listed below. Public device APIs and
-desired-property recovery remain unimplemented.
+secure WebSockets remain unimplemented.
 
 | Behaviour | C# reference at the pinned commit | Dart coverage to add |
 | --- | --- | --- |
@@ -30,7 +30,7 @@ desired-property recovery remain unimplemented.
   operation token is linked to client shutdown; reconnect has its own lifetime.
 - **Agreed SAS renewal decision:** follow C# MQTT credential caching and refresh
   when a connection requests an eligible token. Do not schedule proactive
-  disconnects. This takes priority over PSW-252's proactive-renewal requirement.
+  disconnects.
 - **Agreed SUBACK deviation:** fail open with a protocol error when the
   twin-response subscription is rejected. C# `MqttIotHubAdapter.ProcessSubAck`
   completes the subscription without checking the failure code; `mqtt_client`
@@ -46,10 +46,20 @@ desired-property recovery remain unimplemented.
   types out of the public SDK API; review how callers request cancellation once
   the client works end to end. A future wrapper cannot itself stop MQTT work;
   the SDK still owns cleanup, deadlines and late-completion handling.
-- PSW-252 requires twin snapshot reconciliation after reconnect. The inspected C#
-  recovery handler restores subscriptions; our supported recovery flow must also
-  subscribe, fetch a snapshot and reconcile buffered notifications by `$version`,
-  following the [IoT Hub contract](https://learn.microsoft.com/en-us/azure/iot-hub/iot-hub-devguide-device-twins#device-reconnection-flow).
+- **Agreed desired-property boundary:** follow C# by delivering patches and
+  restoring subscriptions. The device application retrieves snapshots and
+  reconciles versions, following the [IoT Hub reconnection flow](https://learn.microsoft.com/en-us/azure/iot-hub/iot-hub-devguide-device-twins#device-reconnection-flow).
+  Do not add an automatic snapshot fetch, merged state or reconciliation helper.
+- **Agreed C# defect correction:** `InternalClient` does not clear
+  `_twinPatchSubscribedWithService` after disabling desired notifications. Dart
+  subscribes again when a callback is re-registered after removal, rather than
+  reproducing the resulting missed subscription.
+  A source review on 24 October 2026 confirmed that Python resets its enabled flag
+  on removal and enables the feature again on re-registration; its
+  [pipeline](https://github.com/Azure/azure-iot-sdk-python/blob/main/azure-iot-device/azure/iot/device/iothub/pipeline/mqtt_pipeline.py#L532)
+  and [tests](https://github.com/Azure/azure-iot-sdk-python/blob/main/tests/unit/iothub/pipeline/test_mqtt_pipeline.py#L783)
+  support this correction. Python also clears the flag on disable failure;
+  Dart retains the cancellation and acknowledgement rules documented here.
 - Pending work and transport resources must remain bounded even when callers
   cancel or acknowledgements never arrive. Cancellation after submission must
   preserve delivery uncertainty.
@@ -117,7 +127,7 @@ provider abstraction yet. Additional tests cover threshold equality, fractional
 expiry, buffer rounding and unchanged external tokens after expiry.
 
 Errors use Dart `FormatException` without the input as its source. Diagnostic
-`toString()` methods redact credentials, as required by PSW-252; they do not provide
+`toString()` methods redact credentials; they do not provide
 C#'s connection-string serialization. These classes are internal and unexported.
 External token replacement, provider callbacks and public error types remain to be
 implemented. Transport authentication is covered below. The protocol reference is Microsoft's
@@ -162,14 +172,24 @@ bounds and queue limits adapt C#'s threading mechanics to Dart; see the
 | Timeout retry and throttling | `iothub/device/src/Pipeline/ErrorDelegatingHandler.cs`, `RetryDelegatingHandler.cs` | Transport response timeouts and 429 retry within the unchanged operation deadline; other service errors, including 5xx, are non-retryable |
 | Desired/reported collections and default values | `shared/src/TwinProperties.cs`, `TwinCollection.cs` in the same directory | Internal `TwinProperties`; [JSON tests](../test/twin_test.dart) preserve metadata, versions, nested values and ISO-looking strings |
 | Open subscription, GET/PATCH pre-cancellation, happy path, service failure and timeout | `iothub/device/tests/Transport/Mqtt/MqttTransportHandlerTests.cs` | Named adaptations in both TLS suites; timeout cases include the outer client's retry behavior |
+| Desired callback registration, replacement and removal | `iothub/device/src/InternalClient.cs`: `SetDesiredPropertyUpdateCallbackAsync`; `iothub/device/tests/DeviceClientTwinApiTests.cs` | `setDesiredPropertyUpdateCallback`; [desired-property TLS tests](../test/transport/desired_properties_test.dart) retain first-registration, replacement, unsubscribe and callback case names |
+| Desired subscription and dispatch | `MqttTransportHandler.cs`: `EnableTwinPatchAsync`, `DisableTwinPatchAsync`, `HandleIncomingTwinPatchAsync`; `InternalClient.OnReportedStatePatchReceived` | QoS 1 subscription, raw JSON patches and PUBACK after synchronous dispatch; named pre-cancellation/timeout adaptations and Dart lifecycle tests |
+| Desired subscription recovery | `RetryDelegatingHandler.HandleDisconnectAsync` | Restores the subscription without GET or version reconciliation; controlled tests cover recovery deadlines and callback-triggered retirement |
 
 The public twin model is not settled. This increment returns the properties
 section through an internal type. It does not implement C#'s dynamic collection
-API or desired-property notifications. PATCH accepts an internal Dart map of JSON
+API. PATCH accepts an internal Dart map of JSON
 values. To enforce the existing byte budget, it captures serialized bytes at
 submission and reuses them across retries; C# serializes a mutable `TwinCollection`
 inside each transport attempt. Invalid JSON diagnostics omit device properties.
 See [twin notes](twins.md) for bounded storage and remaining live validation.
+
+The desired callback uses a Dart closure in place of C#'s separate context object.
+`InternalClient.OnReportedStatePatchReceived` invokes the user delegate but does
+not await its returned Task; Dart likewise acknowledges after synchronous dispatch,
+without awaiting application futures. C#'s transport closes on synchronous dispatch
+failure, and its retry handler restores subscriptions; the Dart tests preserve that
+sequence. The application owns asynchronous work and its error handling.
 
 ## Upstream maintenance
 

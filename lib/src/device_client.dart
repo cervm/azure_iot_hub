@@ -70,6 +70,9 @@ final class DeviceClient {
   bool _connected = false;
   bool _closed = false;
   bool _recoveryStopped = false;
+  DesiredPropertyUpdateCallback? _desiredCallback;
+  static const _desiredTopic = r'$iothub/twin/PATCH/properties/desired/#';
+  static const _desiredPrefix = r'$iothub/twin/PATCH/properties/desired/';
 
   int get pendingCount => _pending.length;
   int get pendingBytes => _pendingBytes;
@@ -105,11 +108,27 @@ final class DeviceClient {
     );
   }
 
+  /// Registers or replaces a desired-property callback; null unsubscribes.
+  ///
+  /// Registration waits for SUBACK, and removal waits for UNSUBACK. Reconnects
+  /// restore the subscription. Snapshots and version reconciliation belong to
+  /// the application; this method does not fetch or merge desired state.
+  Future<void> setDesiredPropertyUpdateCallback(
+    DesiredPropertyUpdateCallback? callback, {
+    CancellationToken? cancellationToken,
+  }) => _submit(
+    _OperationKind.desiredSubscription,
+    null,
+    cancellationToken,
+    desiredCallback: callback,
+  );
+
   Future<TwinProperties?> _submit(
     _OperationKind kind,
     TelemetryMessage? message,
     CancellationToken? token, {
     Map<String, Object?>? reportedProperties,
+    DesiredPropertyUpdateCallback? desiredCallback,
   }) {
     final reason = _closed
         ? OperationFailureReason.closed
@@ -119,12 +138,19 @@ final class DeviceClient {
     if (reason != null) {
       return Future.error(OperationFailure(reason, DeliveryState.notSubmitted));
     }
+    if (kind == _OperationKind.desiredSubscription &&
+        !_pending.any((operation) => operation.kind == kind) &&
+        (_desiredCallback != null) == (desiredCallback != null)) {
+      // Replacing a callback (or clearing an absent one) needs no wire exchange.
+      _desiredCallback = desiredCallback;
+      return Future.value();
+    }
     final topic = switch (kind) {
       _OperationKind.twinGet => r'$iothub/twin/GET/?$rid=',
       _OperationKind.twinPatch =>
         r'$iothub/twin/PATCH/properties/reported/?$rid=',
       _OperationKind.telemetry => message!.topic(credentials.deviceId),
-      _OperationKind.open => null,
+      _OperationKind.open || _OperationKind.desiredSubscription => null,
     };
     if (topic != null) PublicationTopic(topic);
     final payload = kind == _OperationKind.twinPatch
@@ -160,14 +186,15 @@ final class DeviceClient {
         schedule: schedule,
         onCancelled: () {
           _clearTwinRequest(operation);
-          if (operation.packetId == null) _release(operation);
+          if (!_hasReservation(operation)) _release(operation);
         },
         onTimeout: () {
-          final submitted = operation.packetId != null;
+          final submitted = _hasReservation(operation);
           _release(operation);
           if (submitted && _attempt != null) _lost(_attempt!);
         },
       ),
+      desiredCallback: desiredCallback,
     );
     _pending.add(operation);
     _pendingBytes += size;
@@ -184,6 +211,10 @@ final class DeviceClient {
     }
     return operation.completion.future;
   }
+
+  bool _hasReservation(_Operation operation) =>
+      operation.packetId != null ||
+      identical(_attempt?.desiredAction?.operation, operation);
 
   void _release(_Operation operation) {
     _clearTwinRequest(operation);
@@ -220,6 +251,7 @@ final class DeviceClient {
         schedule: schedule,
         now: now,
       );
+      transport.manuallyAcknowledgeQos1 = true;
       final attempt = _Attempt(transport);
       current = attempt;
       _attempt = attempt;
@@ -259,16 +291,44 @@ final class DeviceClient {
       attempt.updates = transport.updates!.listen((messages) {
         if (!identical(_attempt, attempt)) return;
         for (final message in messages) {
+          if (!identical(_attempt, attempt)) break;
           final publish = message.payload as MqttPublishMessage;
-          _receiveTwin(message.topic, publish.payload.message);
+          try {
+            if (message.topic.startsWith(_desiredPrefix)) {
+              final patch = decodeDesiredPropertyPatch(publish.payload.message);
+              _desiredCallback?.call(patch);
+            } else {
+              _receiveTwin(message.topic, publish.payload.message);
+            }
+            if (identical(_attempt, attempt)) {
+              transport.acknowledgeQos1Message(publish);
+            }
+          } catch (_) {
+            // A malformed patch or synchronous callback failure must not leak
+            // property values or acknowledge work whose dispatch failed.
+            // C# closes the transport and lets its retry handler recover it.
+            _lost(attempt);
+          }
         }
       });
-      transport.onSubscribed = (_) {
+      transport.onSubscribed = (topic) {
         if (_closed || !identical(_attempt, attempt)) return;
-        attempt.deadline?.cancel();
-        _connected = true;
-        _retryCount = 0;
-        _flush();
+        if (topic == _desiredTopic) {
+          _completeDesiredAction(attempt, subscribed: true);
+        } else if (topic == r'$iothub/twin/res/#') {
+          if (_desiredCallback != null) {
+            _startDesiredAction(attempt, subscribe: true);
+          } else {
+            _connectedReady(attempt);
+          }
+        }
+      };
+      transport.onUnsubscribed = (topic) {
+        if (!_closed &&
+            identical(_attempt, attempt) &&
+            topic == _desiredTopic) {
+          _completeDesiredAction(attempt, subscribed: false);
+        }
       };
       transport.onSubscribeFail = (_) {
         if (_closed || !identical(_attempt, attempt)) return;
@@ -293,11 +353,81 @@ final class DeviceClient {
     }
   }
 
+  void _connectedReady(_Attempt attempt) {
+    attempt.deadline?.cancel();
+    _connected = true;
+    _retryCount = 0;
+    _flush();
+  }
+
+  void _startDesiredAction(
+    _Attempt attempt, {
+    required bool subscribe,
+    _Operation? operation,
+  }) {
+    final action = _DesiredAction(subscribe, operation);
+    attempt.desiredAction = action;
+    // Background recovery/cleanup has no caller operation to bound its wait.
+    if (operation == null) {
+      action.deadline = schedule(connectionTimeout, () => _lost(attempt));
+    }
+    try {
+      operation?.completion.markSubmitted();
+      if (subscribe) {
+        if (attempt.transport.subscribe(_desiredTopic, MqttQos.atLeastOnce) ==
+            null) {
+          _lost(attempt);
+        }
+      } else {
+        attempt.transport.unsubscribe(_desiredTopic, expectAcknowledge: true);
+      }
+    } catch (_) {
+      _lost(attempt);
+    }
+  }
+
+  void _completeDesiredAction(_Attempt attempt, {required bool subscribed}) {
+    final action = attempt.desiredAction;
+    if (action == null || action.subscribe != subscribed) return;
+    action.deadline?.cancel();
+    attempt.desiredAction = null;
+    attempt.desiredSubscribed = subscribed;
+    final operation = action.operation;
+    if (operation != null) {
+      if (!operation.completion.isCompleted) {
+        _desiredCallback = operation.desiredCallback;
+        operation.completion.complete(null);
+      }
+      _release(operation);
+    }
+    if (!_connected) {
+      _connectedReady(attempt);
+    } else {
+      _flush();
+    }
+  }
+
   void _flush() {
     final attempt = _attempt!;
     for (final operation in _pending.toList()) {
       if (!_connected || !identical(_attempt, attempt)) break;
       if (operation.completion.isCompleted || operation.packetId != null) {
+        continue;
+      }
+      if (operation.kind == _OperationKind.desiredSubscription) {
+        if (attempt.desiredAction != null) continue;
+        final subscribe = operation.desiredCallback != null;
+        if (attempt.desiredSubscribed == subscribe) {
+          _desiredCallback = operation.desiredCallback;
+          operation.completion.complete(null);
+          _release(operation);
+        } else {
+          _startDesiredAction(
+            attempt,
+            subscribe: subscribe,
+            operation: operation,
+          );
+        }
         continue;
       }
       if (operation.kind == _OperationKind.open) {
@@ -326,6 +456,14 @@ final class DeviceClient {
       } catch (_) {
         _lost(attempt);
       }
+    }
+    if (_connected &&
+        identical(_attempt, attempt) &&
+        attempt.desiredAction == null &&
+        attempt.desiredSubscribed != (_desiredCallback != null)) {
+      // Cancellation can arrive while SUBACK/UNSUBACK is in flight. Restore the
+      // last committed registration once that exchange has released its ID.
+      _startDesiredAction(attempt, subscribe: _desiredCallback != null);
     }
   }
 
@@ -403,6 +541,7 @@ final class DeviceClient {
     _attempt = null;
     _connected = false;
     attempt.deadline?.cancel();
+    attempt.desiredAction?.deadline?.cancel();
     unawaited(attempt.subscription?.cancel());
     unawaited(attempt.updates?.cancel());
     attempt.transport.retire();
@@ -460,6 +599,7 @@ final class DeviceClient {
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    _desiredCallback = null;
     _retry?.cancel();
     _retry = null;
     _shutdown.cancel();
@@ -474,13 +614,20 @@ final class _Attempt(final MqttTransport transport) {
   Timer? deadline;
   StreamSubscription<MqttPublishMessage>? subscription;
   StreamSubscription<List<MqttReceivedMessage<MqttMessage>>>? updates;
+  bool desiredSubscribed = false;
+  _DesiredAction? desiredAction;
+}
+
+final class _DesiredAction(final bool subscribe, final _Operation? operation) {
+  Timer? deadline;
 }
 
 enum _OperationKind {
   open,
   telemetry,
   twinGet,
-  twinPatch;
+  twinPatch,
+  desiredSubscription;
 
   bool get isTwin => this == twinGet || this == twinPatch;
 }
@@ -490,8 +637,9 @@ final class _Operation(
   final List<int> payload,
   final String? topic,
   final int size,
-  final PendingOperation<TwinProperties?> completion,
-) {
+  final PendingOperation<TwinProperties?> completion, {
+  final DesiredPropertyUpdateCallback? desiredCallback,
+}) {
   int? packetId;
   String? requestId;
   TwinResponse? response;

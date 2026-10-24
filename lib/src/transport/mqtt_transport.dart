@@ -67,7 +67,10 @@ final class MqttTransport extends MqttClient {
     _handler.abort();
     // The retained handler owns the socket even after MqttClient clears its
     // connectionHandler. No late connection can escape retirement.
-    disconnect();
+    // mqtt_client's synchronous update stream cannot be closed from inside a
+    // notification callback. Abort I/O now, then dispose its stream machinery
+    // after the current dispatch returns.
+    scheduleMicrotask(disconnect);
   }
 }
 

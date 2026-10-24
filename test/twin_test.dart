@@ -4,6 +4,47 @@ import 'package:azure_iot_hub/src/twin.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test(
+    'desired patches preserve JSON values without interpreting versions',
+    () {
+      final patch = {
+        'list': [
+          1,
+          null,
+          {'enabled': true},
+        ],
+        'nested': {'removed': null},
+        r'$version': 8,
+        r'$metadata': {r'$lastUpdated': '2023-01-31T10:37:08.4599400'},
+      };
+      expect(decodeDesiredPropertyPatch(utf8.encode(jsonEncode(patch))), patch);
+      expect(decodeDesiredPropertyPatch(utf8.encode('{}')), isEmpty);
+    },
+  );
+
+  test('invalid desired patch JSON and UTF-8 redact property values', () {
+    for (final bytes in [
+      utf8.encode('secret-property: not JSON'),
+      utf8.encode('["secret-property"]'),
+      utf8.encode('"secret-property"'),
+      utf8.encode('null'),
+      [255],
+    ]) {
+      expect(
+        () => decodeDesiredPropertyPatch(bytes),
+        throwsA(
+          isA<FormatException>()
+              .having((e) => e.source, 'source', isNull)
+              .having(
+                (e) => e.toString(),
+                'diagnostic',
+                isNot(contains('secret-property')),
+              ),
+        ),
+      );
+    }
+  });
+
   test('reported patch limit counts encoded UTF-8 bytes', () {
     // {"x":""} adds eight ASCII bytes. Use multibyte characters to distinguish
     // the MQTT byte limit from a Dart string-length check.

@@ -5,7 +5,7 @@
   and intentional behaviour changes before implementing them.
 - Use modern, idiomatic Dart and the FVM-pinned SDK. Keep this package pure Dart.
 - Target native Dart runtimes, prioritising Linux ARM64.
-- Prioritise matching the stable C# SDK's observable behaviour for supported
+- Use the pinned stable C# SDK's observable behaviour as the baseline for supported
   features. Keep responsibilities and tests recognisable for upstream comparison;
   adapt threading and language mechanics to Dart.
 - Microsoft's IoT Hub protocol contract governs conflicts. Discuss and record
@@ -19,9 +19,12 @@
   client works end to end. Avoid a speculative cancellation framework.
 - Follow C# retry/reconnect behaviour: a transient disconnect does not immediately
   fail a send; cancelling one operation does not stop client recovery.
+- Follow C# desired-property behaviour: deliver patches and restore subscriptions.
+  Snapshot retrieval and version reconciliation belong to the device application.
+  Re-registering after removal must subscribe again; this corrects the pinned
+  C# subscription-flag defect by agreement.
 - Follow C# MQTT SAS renewal: refresh cached credentials when requested within
-  the renewal window; do not schedule proactive disconnects. This decision
-  overrides PSW-252's proactive-renewal requirement.
+  the renewal window; do not schedule proactive disconnects.
 - Always enforce a finite operation timeout, including when a caller supplies a
   cancellation token. Default to four minutes; include reconnect waits and retries
   in the same deadline. This is an agreed deviation from C# token precedence.

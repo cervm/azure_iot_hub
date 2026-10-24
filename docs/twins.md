@@ -61,7 +61,44 @@ twin snapshot showed reported `$version` 4 and no test property. The separate
 read-only twin test has not been reported as run; twin retrieval is covered by
 the successful PATCH test. Live reconnect and expiry/renewal remain unverified.
 
-Desired-property subscriptions and reconnect snapshot
-reconciliation remain subsequent work. The [upstream mapping](upstream.md) records
-the pinned implementation. The wire contract is documented in Microsoft's
+## Desired-property callbacks
+
+`DeviceClient.setDesiredPropertyUpdateCallback` registers an internal callback
+receiving a JSON map. First registration subscribes to
+`$iothub/twin/PATCH/properties/desired/#` at QoS 1 and waits for SUBACK. Replacing
+the callback uses the existing subscription. Passing null waits for UNSUBACK
+before removing the callback. Registration calls are serialized and share the
+client's pending-operation limit and original deadlines.
+
+Callbacks receive each patch with null deletion values, nested JSON, `$version`
+and metadata intact. The SDK does not merge patches, deduplicate versions or fetch
+snapshots. Reconnect restores the subscription before resuming queued operations.
+The application owns snapshot retrieval and version reconciliation, following
+Microsoft's [device reconnection flow](https://learn.microsoft.com/en-us/azure/iot-hub/iot-hub-devguide-device-twins#device-reconnection-flow).
+
+As in the pinned C# dispatcher, callback invocation precedes PUBACK, but asynchronous
+application work is not awaited. Applications must handle errors from that work.
+Malformed JSON or a synchronous callback exception retires the connection without
+acknowledging the notification; recovery restores the subscription. Closing inside
+a callback stops I/O immediately and defers MQTT stream disposal until dispatch
+returns. No property values or callback exception contents are logged.
+
+Cancellation leaves the last successful callback registration in place. An
+outstanding SUBSCRIBE or UNSUBSCRIBE retains its reservation until ACK, retirement
+or the original deadline. If a late ACK changed the wire subscription, the client
+restores the committed registration with a bounded exchange. Background recovery
+uses the connection deadline.
+
+**Agreed C# defect correction:** the pinned `InternalClient` never clears
+`_twinPatchSubscribedWithService` after disabling notifications. Re-registering can
+therefore skip SUBSCRIBE. Dart tracks acknowledged subscription state and subscribes
+again after removal. Rejected SUBACKs follow the existing protocol-error policy.
+
+Controlled TLS tests adapt C# registration, replacement, removal, callback and
+cancellation/timeout cases. Additional cases cover reconnect without GET, repeated
+versions, asynchronous callback work, cancellation races, missing acknowledgements,
+callback failures and shutdown. Desired notifications have not yet been tested
+against a live hub.
+
+The [upstream mapping](upstream.md) records the pinned implementation. The wire contract is documented in Microsoft's
 [MQTT twin guide](https://learn.microsoft.com/en-us/azure/iot-hub/iot-mqtt-connect-to-iot-hub#update-device-twins-reported-properties).

@@ -21,3 +21,7 @@
 - Add internal reported-property patches with JSON snapshots, C# response handling
   and shared retry/deadline/capacity controls. Add adapted PATCH tests and an opt-in
   live test that verifies merge/deletion and cleans up its unique test property.
+- Add internal desired-property callbacks, subscription removal/recovery and
+  bounded cancellation handling, with adapted C# and Dart lifecycle tests.
+  Keep snapshot retrieval and version reconciliation in the application; correct
+  the pinned C# re-registration defect by agreement.

@@ -132,6 +132,11 @@ final class MqttPeer {
     await socket.flush();
   }
 
+  Future<void> unsuback(int id) async {
+    socket.add([0xb0, 2, id >> 8, id & 255]);
+    await socket.flush();
+  }
+
   Future<void> publish(String topic, List<int> payload, {int id = 1}) async {
     final name = utf8.encode(topic);
     final body = [
