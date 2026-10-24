@@ -2,23 +2,10 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:azure_iot_hub/src/pending_operation.dart';
 import 'package:cancellation_token/cancellation_token.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
-
-typedef Schedule = Timer Function(Duration delay, void Function() callback);
-
-enum FailureReason { cancelled, timeout, closed, capacity }
-
-enum Delivery { notSubmitted, unknown }
-
-final class ProbeFailure(final FailureReason reason, final Delivery delivery)
-    implements Exception {
-  @override
-  String toString() => 'ProbeFailure($reason, $delivery)';
-}
-
-final class _Shutdown implements Exception {}
 
 // Owns connection recovery separately from the callers waiting for it.
 final class ProbeClient {
@@ -79,23 +66,45 @@ final class ProbeClient {
   Future<void> _submit(String? payload, CancellationToken? token) {
     if (_closed) {
       return Future.error(
-        ProbeFailure(FailureReason.closed, Delivery.notSubmitted),
+        OperationFailure(
+          OperationFailureReason.closed,
+          DeliveryState.notSubmitted,
+        ),
       );
     }
     if (token?.isCancelled ?? false) {
       return Future.error(
-        ProbeFailure(FailureReason.cancelled, Delivery.notSubmitted),
+        OperationFailure(
+          OperationFailureReason.cancelled,
+          DeliveryState.notSubmitted,
+        ),
       );
     }
     if (_pending.length >= maxPending) {
       return Future.error(
-        ProbeFailure(FailureReason.capacity, Delivery.notSubmitted),
+        OperationFailure(
+          OperationFailureReason.capacity,
+          DeliveryState.notSubmitted,
+        ),
       );
     }
-    final operation = _Operation(payload, _cancel);
+    late final _Operation operation;
+    operation = _Operation(
+      payload,
+      PendingOperation<void>(
+        onCancelled: () => _cancel(operation),
+        onTimeout: () => _expire(operation),
+        timeout: operationTimeout,
+        schedule: schedule,
+      ),
+    );
     _pending.add(operation);
-    operation.timer = schedule(operationTimeout, () => _expire(operation));
-    operation.attach(token == null ? _shutdown : token.merge(_shutdown));
+    if (!operation.completion.start(
+      shutdown: _shutdown,
+      cancellationToken: token,
+    )) {
+      return operation.future;
+    }
     if (_connected) {
       _flush();
     } else if (_retry == null) {
@@ -104,10 +113,7 @@ final class ProbeClient {
     return operation.future;
   }
 
-  void _cancel(_Operation operation, Exception cause) {
-    operation.fail(
-      cause is _Shutdown ? FailureReason.closed : FailureReason.cancelled,
-    );
+  void _cancel(_Operation operation) {
     // A cancelled caller does not remove the packet retained by mqtt_client.
     // Keep its slot and original deadline until PUBACK or connection retirement.
     if (operation.packetId == null) _release(operation);
@@ -115,7 +121,6 @@ final class ProbeClient {
 
   void _expire(_Operation operation) {
     final hadPacket = operation.packetId != null;
-    operation.fail(FailureReason.timeout);
     _release(operation);
     if (hadPacket) {
       final attempt = _attempt;
@@ -124,7 +129,7 @@ final class ProbeClient {
   }
 
   void _release(_Operation operation) {
-    operation.dispose();
+    operation.completion.release();
     _pending.remove(operation);
     _packets.remove(operation.packetId);
   }
@@ -162,7 +167,7 @@ final class ProbeClient {
         if (!identical(_attempt, current)) return;
         final operation = _packets[message.variableHeader!.messageIdentifier];
         if (operation == null) return;
-        operation.succeed();
+        operation.completion.complete(null);
         _release(operation);
       });
       _connected = true;
@@ -187,12 +192,12 @@ final class ProbeClient {
       if (operation.done || operation.packetId != null) continue;
       final payload = operation.payload;
       if (payload == null) {
-        operation.succeed();
+        operation.completion.complete(null);
         _release(operation);
         continue;
       }
       final builder = MqttClientPayloadBuilder()..addUTF8String(payload);
-      operation.submitted = true;
+      operation.completion.markSubmitted();
       final id = client.publishMessage(
         'probe/telemetry',
         MqttQos.atLeastOnce,
@@ -230,7 +235,7 @@ final class ProbeClient {
     _closed = true;
     _retry?.cancel();
     _retry = null;
-    _shutdown.cancel(_Shutdown());
+    _shutdown.cancel();
     final attempt = _attempt;
     if (attempt != null) _lost(attempt);
     for (final operation in _pending.toList()) {
@@ -259,42 +264,9 @@ final class _Attempt(final MqttServerClient client) {
 
 final class _Operation(
   final String? payload,
-  final void Function(_Operation, Exception) cancelled,
-) with Cancellable {
-  final _completer = Completer<void>();
-  Timer? timer;
+  final PendingOperation<void> completion,
+) {
   int? packetId;
-  bool submitted = false;
-  Future<void> get future => _completer.future;
-  bool get done => _completer.isCompleted;
-
-  void attach(CancellationToken token) => maybeAttach(token);
-
-  void succeed() {
-    if (done) return;
-    detach();
-    _completer.complete();
-  }
-
-  void fail(FailureReason reason) {
-    if (done) return;
-    detach();
-    _completer.completeError(
-      ProbeFailure(
-        reason,
-        submitted ? Delivery.unknown : Delivery.notSubmitted,
-      ),
-    );
-  }
-
-  void dispose() {
-    timer?.cancel();
-    detach();
-  }
-
-  @override
-  void onCancel(Exception exception) {
-    super.onCancel(exception);
-    cancelled(this, exception);
-  }
+  Future<void> get future => completion.future;
+  bool get done => completion.isCompleted;
 }

@@ -1,7 +1,8 @@
 # Cancellation and MQTT prototype
 
-This is a test-only experiment, not a device SDK implementation or public API.
-Development dependencies pin `cancellation_token` 2.0.1 and the `mqtt_client` fork at
+This is a test-only experiment, not a public device client. Its operation lifecycle
+now uses the SDK's internal `PendingOperation` component. The SDK internally uses
+`cancellation_token` 2.0.1; the prototype pins the `mqtt_client` fork at
 [`e9baef8`](https://github.com/cervm/mqtt_client/commit/e9baef8c848f3ada77b1f02750adf479ab8b3f0d),
 based on 10.13.0.
 
@@ -64,8 +65,10 @@ resource testing before production reliability claims.
 
 ## Recommendation and scope
 
-Keep `cancellation_token` as the initial candidate: cooperative registration and
-merged tokens support the tested lifetime model. Use the focused fork pinned above;
+Use `cancellation_token` internally: cooperative registration and merged tokens
+support the tested lifetime model. Keep its types out of the public SDK API and
+review caller-facing cancellation once the client works end to end.
+Use the focused fork pinned above;
 an upstream PR is deferred. Rerun these regressions when changing the dependency.
 
 The fixed retry delay, tiny payload/count limits and loopback TCP are experiment

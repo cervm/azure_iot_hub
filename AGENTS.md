@@ -12,8 +12,9 @@
   deviations; do not silently improve or simplify behaviour.
 - Use the pinned reference and source/test mapping in [docs/upstream.md](docs/upstream.md).
   Preserve copyright and licence notices for adapted code and tests.
-- Prefer maintained packages. Initially evaluate `cancellation_token` for C#-style
-  semantics; keep dependency-specific details contained without building a framework.
+- Use `cancellation_token` internally for C#-style cooperative cancellation. Keep
+  its types out of the public SDK API; review caller-facing cancellation once the
+  client works end to end. Avoid a speculative cancellation framework.
 - Follow C# retry/reconnect behaviour: a transient disconnect does not immediately
   fail a send; cancelling one operation does not stop client recovery.
 - Always enforce a finite operation timeout, including when a caller supplies a

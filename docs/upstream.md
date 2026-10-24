@@ -34,11 +34,10 @@ coverage are listed below; the public device APIs and twin coverage remain unimp
   operation, including connection waits and retries; reconnect must not restart it.
   A caller token may cancel earlier. Do not support disabling the timeout with
   zero. Test timeout/cancellation/acknowledgement races and distinguish their outcomes.
-- Begin by evaluating `cancellation_token` for cooperative cancellation. A wrapper
-  around a future cannot itself stop MQTT work. Verify cleanup, linked cancellation
-  and late-completion races before adopting the dependency in production code.
-- A future package replacement is a public API consideration if dependency types
-  are exposed. Decide that boundary before publishing the cancellation API.
+- Use `cancellation_token` internally for cooperative cancellation. Keep package
+  types out of the public SDK API; review how callers request cancellation once
+  the client works end to end. A future wrapper cannot itself stop MQTT work;
+  the SDK still owns cleanup, deadlines and late-completion handling.
 - PSW-252 requires twin snapshot reconciliation after reconnect. The inspected C#
   recovery handler restores subscriptions; our supported recovery flow must also
   subscribe, fetch a snapshot and reconcile buffered notifications by `$version`,
@@ -62,6 +61,14 @@ pending packets, reconnect without deadline reset, stale disconnect callbacks an
 shutdown. These are new tests, not claims of porting C# test coverage wholesale.
 See [prototype findings](mqtt-prototype.md) for the dependency fixes and remaining
 validation boundaries.
+
+The prototype now uses [PendingOperation](../lib/src/pending_operation.dart) from
+the SDK's internal implementation. Its deadline covers retries and survives caller
+cancellation while an in-flight packet still needs cleanup. The owner releases
+that deadline on acknowledgement or connection retirement. The
+[operation tests](../test/pending_operation_test.dart) additionally verify shared
+tokens, shutdown isolation, listener cleanup, pre-cancellation and terminal races
+with deterministic timers. No cancellation types have been exported.
 
 ## Internal authentication coverage
 

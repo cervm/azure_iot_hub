@@ -6,10 +6,10 @@ environment:
   sdk: ^3.13.5
 
 dependencies:
+  cancellation_token: 2.0.1
   crypto: ^3.0.7
 
 dev_dependencies:
-  cancellation_token: 2.0.1
   lints: ^6.0.0
   mqtt_client:
     git:

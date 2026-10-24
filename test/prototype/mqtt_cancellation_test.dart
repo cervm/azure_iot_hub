@@ -7,6 +7,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:azure_iot_hub/src/pending_operation.dart';
 import 'package:cancellation_token/cancellation_token.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
@@ -16,9 +17,10 @@ import 'support/manual_time.dart';
 import 'support/mqtt_peer.dart';
 import 'support/probe_client.dart';
 
-Matcher failure(FailureReason reason, Delivery delivery) => isA<ProbeFailure>()
-    .having((error) => error.reason, 'reason', reason)
-    .having((error) => error.delivery, 'delivery', delivery);
+Matcher failure(OperationFailureReason reason, DeliveryState delivery) =>
+    isA<OperationFailure>()
+        .having((error) => error.reason, 'reason', reason)
+        .having((error) => error.delivery, 'delivery', delivery);
 
 void main() {
   late MqttPeerServer server;
@@ -68,7 +70,9 @@ void main() {
     final token = CancellationToken()..cancel();
     await expectLater(
       probe.open(cancellationToken: token),
-      throwsA(failure(FailureReason.cancelled, Delivery.notSubmitted)),
+      throwsA(
+        failure(OperationFailureReason.cancelled, DeliveryState.notSubmitted),
+      ),
     );
     expect(clients, isEmpty);
     expect(token.hasCancellables, isFalse);
@@ -80,7 +84,9 @@ void main() {
       final token = CancellationToken()..cancel();
       await expectLater(
         probe.send('event', cancellationToken: token),
-        throwsA(failure(FailureReason.cancelled, Delivery.notSubmitted)),
+        throwsA(
+          failure(OperationFailureReason.cancelled, DeliveryState.notSubmitted),
+        ),
       );
       expect(clients, isEmpty);
       expect(token.hasCancellables, isFalse);
@@ -111,7 +117,9 @@ void main() {
       final token = CancellationToken();
       final result = expectLater(
         probe.send('cancelled', cancellationToken: token),
-        throwsA(failure(FailureReason.cancelled, Delivery.notSubmitted)),
+        throwsA(
+          failure(OperationFailureReason.cancelled, DeliveryState.notSubmitted),
+        ),
       );
       final peer = await server.nextConnection();
       await peer.nextPacket(1);
@@ -132,7 +140,9 @@ void main() {
     final token = CancellationToken();
     final result = expectLater(
       probe.send('event', cancellationToken: token),
-      throwsA(failure(FailureReason.timeout, Delivery.notSubmitted)),
+      throwsA(
+        failure(OperationFailureReason.timeout, DeliveryState.notSubmitted),
+      ),
     );
     final peer = await server.nextConnection();
     await peer.nextPacket(1);
@@ -148,7 +158,7 @@ void main() {
     final token = CancellationToken();
     final cancelled = expectLater(
       probe.send('old', cancellationToken: token),
-      throwsA(failure(FailureReason.cancelled, Delivery.unknown)),
+      throwsA(failure(OperationFailureReason.cancelled, DeliveryState.unknown)),
     );
     final old = await peer.nextPacket(3);
     token.cancel();
@@ -175,7 +185,9 @@ void main() {
       final token = CancellationToken();
       final result = expectLater(
         probe.send('event-$i', cancellationToken: token),
-        throwsA(failure(FailureReason.cancelled, Delivery.unknown)),
+        throwsA(
+          failure(OperationFailureReason.cancelled, DeliveryState.unknown),
+        ),
       );
       await peer.nextPacket(3);
       token.cancel();
@@ -185,7 +197,9 @@ void main() {
     expect(probe.retainedPackets, probe.maxPending);
     await expectLater(
       probe.send('overflow'),
-      throwsA(failure(FailureReason.capacity, Delivery.notSubmitted)),
+      throwsA(
+        failure(OperationFailureReason.capacity, DeliveryState.notSubmitted),
+      ),
     );
     time.elapse(const Duration(seconds: 10));
     await peer.disconnected;
@@ -207,7 +221,7 @@ void main() {
       final peer = await establish();
       final result = expectLater(
         probe.send('event'),
-        throwsA(failure(FailureReason.timeout, Delivery.unknown)),
+        throwsA(failure(OperationFailureReason.timeout, DeliveryState.unknown)),
       );
       await peer.nextPacket(3);
       time.elapse(const Duration(seconds: 10));
@@ -262,7 +276,7 @@ void main() {
     final token = CancellationToken();
     final result = expectLater(
       probe.send('event', cancellationToken: token),
-      throwsA(failure(FailureReason.timeout, Delivery.unknown)),
+      throwsA(failure(OperationFailureReason.timeout, DeliveryState.unknown)),
     );
     await peer.nextPacket(3);
     time.elapse(const Duration(seconds: 4));
@@ -302,7 +316,9 @@ void main() {
       final token = CancellationToken();
       final result = expectLater(
         probe.open(cancellationToken: token),
-        throwsA(failure(FailureReason.closed, Delivery.notSubmitted)),
+        throwsA(
+          failure(OperationFailureReason.closed, DeliveryState.notSubmitted),
+        ),
       );
       final peer = await server.nextConnection();
       await peer.nextPacket(1);
@@ -320,7 +336,7 @@ void main() {
     final peer = await establish();
     final result = expectLater(
       probe.send('event'),
-      throwsA(failure(FailureReason.closed, Delivery.unknown)),
+      throwsA(failure(OperationFailureReason.closed, DeliveryState.unknown)),
     );
     await peer.nextPacket(3);
     await probe.close();
@@ -328,7 +344,9 @@ void main() {
     await peer.disconnected;
     await expectLater(
       probe.send('after close'),
-      throwsA(failure(FailureReason.closed, Delivery.notSubmitted)),
+      throwsA(
+        failure(OperationFailureReason.closed, DeliveryState.notSubmitted),
+      ),
     );
   });
 
@@ -348,7 +366,9 @@ void main() {
     () async {
       final result = expectLater(
         probe.send('event'),
-        throwsA(failure(FailureReason.closed, Delivery.notSubmitted)),
+        throwsA(
+          failure(OperationFailureReason.closed, DeliveryState.notSubmitted),
+        ),
       );
       await probe.close();
       await result;
@@ -369,7 +389,9 @@ void main() {
         results.add(
           expectLater(
             probe.send('event-$i', cancellationToken: token),
-            throwsA(failure(FailureReason.cancelled, Delivery.unknown)),
+            throwsA(
+              failure(OperationFailureReason.cancelled, DeliveryState.unknown),
+            ),
           ),
         );
         packets.add(await peer.nextPacket(3));
@@ -401,7 +423,9 @@ void main() {
     () async {
       final result = expectLater(
         probe.open(),
-        throwsA(failure(FailureReason.closed, Delivery.notSubmitted)),
+        throwsA(
+          failure(OperationFailureReason.closed, DeliveryState.notSubmitted),
+        ),
       );
       final peer = await server.nextConnection();
       await peer.nextPacket(1);
@@ -427,7 +451,12 @@ void main() {
         () async {
           final result = expectLater(
             probe.send('must not be published'),
-            throwsA(failure(FailureReason.closed, Delivery.notSubmitted)),
+            throwsA(
+              failure(
+                OperationFailureReason.closed,
+                DeliveryState.notSubmitted,
+              ),
+            ),
           );
           var disposed = false;
           final closing = probe.close().then((_) => disposed = true);

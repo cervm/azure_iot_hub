@@ -7,3 +7,5 @@
   prototype without changing the dependency's connection lifecycle.
 - Add internal device connection-string parsing and SAS signing, with C# reference
   tests, fixed signature vectors and credential-redaction checks.
+- Extract the operation lifecycle into internal SDK code, using `cancellation_token`
+  without exposing its types, and add deterministic cancellation/deadline tests.
