@@ -27,6 +27,9 @@ telemetry coverage are listed below; public device APIs and twins remain unimple
 
 - C# sends implicitly open the connection and retry transient failures. The
   operation token is linked to client shutdown; reconnect has its own lifetime.
+- **Agreed SAS renewal decision:** follow C# MQTT credential caching and refresh
+  when a connection requests an eligible token. Do not schedule proactive
+  disconnects. This takes priority over PSW-252's proactive-renewal requirement.
 - C# uses a four-minute default operation timeout. Supplying a cancellation token
   bypasses that default. Setting the global timeout to zero also disables it.
 - **Agreed Dart deviation:** always enforce a finite operation timeout, even with
@@ -80,6 +83,8 @@ All C# paths below are relative to `iothub/device/` at the pinned commit.
 | Device/policy token scope | `src/Authentication/DeviceAuthenticationWithSakRefresh.cs`, `src/Authentication/IotHubConnectionString.cs` | `IotHubConnectionString.createSasToken`; independent HMAC vectors in the parser tests |
 | Token signing, expiry and external tokens | `src/Common/Security/SharedAccessSignatureBuilder.cs`, `SharedAccessSignature.cs`, `SharedAccessSignatureConstants.cs`, `StringValidationHelper.cs` in the same directory | [SAS implementation](../lib/src/authentication/shared_access_signature.dart), [tests](../test/authentication/shared_access_signature_test.dart) |
 | Fixed expiry example | `tests/Authentication/HsmAuthentication/SasTokenBuilderTest.cs` | `TestBuildExpiry_ShouldReturnExpireOn` in the SAS tests |
+| Cached token, refresh threshold and device defaults | `src/Authentication/AuthenticationWithTokenRefresh.cs`, `DeviceAuthenticationWithTokenRefresh.cs` in the same directory; matching files in `tests/Authentication/` with `Tests.cs` suffix | [SAS cache](../lib/src/authentication/sas_token_cache.dart), [adapted tests](../test/authentication/sas_token_cache_test.dart) |
+| Credential requests on MQTT CONNECT; fixed SAS passthrough | `src/Authentication/IotHubConnectionString.Core.cs`, `src/Transport/Mqtt/MqttIotHubAdapter.cs` | `DeviceClient._connect`; reconnect and fixed-token cases in the [TLS tests](../test/transport/device_client_test.dart) |
 
 The named parser cases retain the upstream scenarios for host, device ID, complex
 legacy IDs, credentials, policy name, gateway, missing properties and conflicting
@@ -93,10 +98,23 @@ round-to-even expiry seconds. External tokens retain their original bytes and
 expiry. Their parser retains C#'s five-minute clock-skew allowance; that allowance
 must not postpone renewal or imply service-side validity after expiry.
 
+The cache uses C#'s one-hour lifetime and 15% buffer; zero requests either default.
+It calculates the buffer from the whole seconds remaining after signing, with
+C#'s single-precision arithmetic and integer truncation. Credential requests before
+the threshold reuse the token; requests at or after it sign again. SAS timestamps
+use wall-clock time, independently of each operation's existing deadline.
+There is no renewal timer and no assumed service-side grace period.
+
+The named cache tests adapt upstream initial-property, cached-token, concurrent
+request and invalid-argument scenarios. Synchronous signing within a Dart isolate
+needs no semaphore: queued callers share one cached result. There is no async
+provider abstraction yet. Additional tests cover threshold equality, fractional
+expiry, buffer rounding and unchanged external tokens after expiry.
+
 Errors use Dart `FormatException` without the input as its source. Diagnostic
 `toString()` methods redact credentials, as required by PSW-252; they do not provide
 C#'s connection-string serialization. These classes are internal and unexported.
-Token renewal/replacement, provider callbacks and public error types remain to be
+External token replacement, provider callbacks and public error types remain to be
 implemented. Transport authentication is covered below. The protocol reference is Microsoft's
 [SAS authentication contract](https://learn.microsoft.com/en-us/azure/iot-hub/authenticate-authorize-sas).
 

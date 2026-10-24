@@ -13,3 +13,5 @@
   bounded queues, reconnect/backoff and explicit delivery uncertainty.
 - Own the raw socket through TLS setup to release stalled handshakes and permit
   recovery; add controlled TLS regressions and an opt-in Azure smoke test.
+- Cache shared-key SAS tokens and refresh eligible tokens on reconnect, following
+  C# without scheduled disconnects; add adapted authentication and TLS regressions.

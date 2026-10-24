@@ -17,6 +17,9 @@
   client works end to end. Avoid a speculative cancellation framework.
 - Follow C# retry/reconnect behaviour: a transient disconnect does not immediately
   fail a send; cancelling one operation does not stop client recovery.
+- Follow C# MQTT SAS renewal: refresh cached credentials when requested within
+  the renewal window; do not schedule proactive disconnects. This decision
+  overrides PSW-252's proactive-renewal requirement.
 - Always enforce a finite operation timeout, including when a caller supplies a
   cancellation token. Default to four minutes; include reconnect waits and retries
   in the same deadline. This is an agreed deviation from C# token precedence.

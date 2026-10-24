@@ -8,6 +8,7 @@ import 'package:mqtt_client/mqtt_client.dart';
 import 'package:typed_data/typed_buffers.dart';
 
 import 'authentication/iot_hub_connection_string.dart';
+import 'authentication/sas_token_cache.dart';
 import 'pending_operation.dart';
 import 'telemetry_message.dart';
 import 'transport/mqtt_transport.dart';
@@ -25,7 +26,8 @@ final class DeviceClient {
     this.schedule = Timer.new,
     this.now = DateTime.now,
     int Function(int)? randomInt,
-  }) : _randomInt = randomInt ?? Random().nextInt {
+  }) : _randomInt = randomInt ?? Random().nextInt,
+       _sasTokens = SasTokenCache(credentials, now: now) {
     if (operationTimeout <= Duration.zero ||
         connectionTimeout <= Duration.zero ||
         maxPending < 1 ||
@@ -47,6 +49,7 @@ final class DeviceClient {
   final Schedule schedule;
   final DateTime Function() now;
   final int Function(int) _randomInt;
+  final SasTokenCache _sasTokens;
   final _shutdown = CancellationToken();
   final _pending = <_Operation>{};
   final _packets = <int, _Operation>{};
@@ -153,7 +156,7 @@ final class DeviceClient {
     _Attempt? current;
     try {
       if (_closed) return;
-      final token = credentials.createSasToken(now: now());
+      final token = _sasTokens.getToken();
       final transport = MqttTransport(
         credentials.connectionHostName,
         credentials.deviceId,

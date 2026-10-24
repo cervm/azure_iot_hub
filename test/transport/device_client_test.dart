@@ -48,14 +48,30 @@ Future<void> until(bool Function() condition) async {
   }
 }
 
+String connectPassword(Packet packet) {
+  // MQTT 3.1.1 variable header, then client ID, username and password (no will).
+  var offset = 10;
+  final fields = <String>[];
+  while (offset < packet.body.length) {
+    final length = (packet.body[offset] << 8) | packet.body[offset + 1];
+    offset += 2;
+    fields.add(utf8.decode(packet.body.sublist(offset, offset + length)));
+    offset += length;
+  }
+  expect(fields, hasLength(3));
+  return fields.last;
+}
+
 void main() {
   late MqttPeerServer server;
   late ManualTime time;
   late DeviceClient client;
+  late Duration wallClockOffset;
 
   setUp(() async {
     server = await MqttPeerServer.startTls(serverContext());
     time = ManualTime();
+    wallClockOffset = Duration.zero;
     client = DeviceClient(
       credentials(),
       port: server.port,
@@ -64,7 +80,7 @@ void main() {
       connectionTimeout: const Duration(seconds: 5),
       maxPending: 3,
       schedule: time.schedule,
-      now: () => epoch.add(time.elapsed),
+      now: () => epoch.add(time.elapsed + wallClockOffset),
       randomInt: (_) => 20,
     );
   });
@@ -241,6 +257,118 @@ void main() {
     await sending;
     await replacement.disconnected;
   });
+
+  for (final minutes in [10, 51, 61]) {
+    test(
+      'reconnect at $minutes minutes uses the C# SAS cache window',
+      () async {
+        final opening = client.open();
+        final first = await server.nextConnection();
+        final original = connectPassword(await first.nextPacket(1));
+        await first.connack();
+        await opening;
+        wallClockOffset = Duration(minutes: minutes);
+        await first.close();
+        await until(() => !client.isConnected && time.activeTimers == 1);
+        time.elapse(const Duration(milliseconds: 100));
+        final replacement = await server.nextConnection();
+        final password = connectPassword(await replacement.nextPacket(1));
+        if (minutes < 51) {
+          expect(password, original);
+        } else {
+          expect(password, isNot(original));
+          expect(
+            password,
+            credentials()
+                .createSasToken(now: epoch.add(wallClockOffset + time.elapsed))
+                .value,
+          );
+        }
+        await replacement.connack();
+        final sending = client.sendEvent(TelemetryMessage([1]));
+        final publish = await replacement.nextPacket(3);
+        await replacement.puback(publish.packetId);
+        await sending;
+        expect(server.peers, hasLength(2));
+      },
+    );
+  }
+
+  test(
+    'healthy MQTT stays connected beyond the SAS renewal window and expiry',
+    () async {
+      final peer = await establish();
+      // Exercise timers through 70 virtual minutes. Regular telemetry keeps the
+      // connection active; the local peer does not enforce service-side expiry.
+      for (var minute = 0; minute < 70; minute++) {
+        time.elapse(const Duration(minutes: 1));
+        final sending = client.sendEvent(TelemetryMessage([minute]));
+        final publish = await peer.nextPacket(3);
+        await peer.puback(publish.packetId);
+        await sending;
+      }
+      expect(client.isConnected, isTrue);
+      expect(server.peers, hasLength(1));
+      expect(time.activeTimers, 1); // Only the keepalive idle check.
+    },
+  );
+
+  test(
+    'retry refreshes credentials even if the first connection never opened',
+    () async {
+      final opening = client.open();
+      final first = await server.nextConnection();
+      final original = connectPassword(await first.nextPacket(1));
+      await first.connack(code: 3);
+      await first.disconnected;
+      await until(() => time.activeTimers == 2);
+      wallClockOffset = const Duration(minutes: 51);
+      time.elapse(const Duration(milliseconds: 100));
+      final replacement = await server.nextConnection();
+      final password = connectPassword(await replacement.nextPacket(1));
+      expect(password, isNot(original));
+      expect(
+        password,
+        credentials()
+            .createSasToken(now: epoch.add(wallClockOffset + time.elapsed))
+            .value,
+      );
+      await replacement.connack();
+      await opening;
+    },
+  );
+
+  test(
+    'SAS refresh during a send preserves its deadline and delivery uncertainty',
+    () async {
+      final peer = await establish();
+      wallClockOffset = const Duration(minutes: 61);
+      final sending = expectLater(
+        client.sendEvent(
+          TelemetryMessage([1]),
+          cancellationToken: CancellationToken(),
+        ),
+        throwsA(failure(OperationFailureReason.timeout, DeliveryState.unknown)),
+      );
+      await peer.nextPacket(3);
+      time.elapse(const Duration(seconds: 6));
+      await peer.close();
+      await until(() => !client.isConnected && time.activeTimers == 2);
+      time.elapse(const Duration(milliseconds: 100));
+      final replacement = await server.nextConnection();
+      expect(
+        connectPassword(await replacement.nextPacket(1)),
+        credentials()
+            .createSasToken(now: epoch.add(wallClockOffset + time.elapsed))
+            .value,
+      );
+      await replacement.connack();
+      await replacement.nextPacket(3);
+      time.elapse(const Duration(milliseconds: 3900));
+      await sending;
+      await replacement.disconnected;
+    },
+  );
 
   test(
     'one cancelled offline send does not stop another send or recovery',
@@ -572,7 +700,12 @@ void main() {
       await peer.nextPacket(12);
       peer.socket.add([0xd0, 0]);
       await peer.socket.flush();
-      await pumpEventQueue();
+      // A subsequent PUBACK proves the preceding PINGRESP was processed. Merely
+      // pumping the event queue does not guarantee that TLS input has arrived.
+      final sending = client.sendEvent(TelemetryMessage([1]));
+      final publish = await peer.nextPacket(3);
+      await peer.puback(publish.packetId);
+      await sending;
       time.elapse(const Duration(seconds: 30));
       expect(client.isConnected, isTrue);
     },

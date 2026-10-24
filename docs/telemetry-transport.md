@@ -35,6 +35,22 @@ another MQTT client enables the package's global logger.
 Queue defaults and connection bounds are internal tuning values, not a published
 configuration contract. There is no offline persistence.
 
+## SAS renewal
+
+Shared-key credentials use C#'s one-hour token lifetime and 15% renewal buffer.
+When a connection attempt requests credentials, the cache reuses a token outside
+that window or signs a fresh one inside it. The threshold is approximately
+51 minutes after signing; C#'s expiry rounding and buffer truncation are preserved.
+
+Reaching the renewal window or token expiry does not schedule a disconnect.
+If IoT Hub closes the session, ordinary recovery requests credentials again.
+No service-side grace period is assumed. This agreed C# behaviour takes priority
+over PSW-252's proactive-renewal wording; see the [source mapping](upstream.md).
+
+External SAS bytes are passed unchanged, including after the parser's existing
+clock-skew check; the service determines validity. External token replacement
+and provider callbacks remain unimplemented.
+
 ## Validation and limits
 
 Controlled tests use a local TLS peer and explicit CONNACK/PUBACK. A manual clock
@@ -42,7 +58,11 @@ drives operation, connection, retry and keepalive timers; socket I/O uses the re
 event loop. Coverage includes C# pre-cancellation scenarios, CONNECT fields,
 property encoding, byte/count capacity, binary payloads, fragmented packets,
 transient retries, authentication refusal, certificate rejection, PINGRESP timeout,
-late connection-task cleanup and repeated stalled TLS handshakes.
+late connection-task cleanup and repeated stalled TLS handshakes. SAS coverage
+checks reuse before the renewal window, refresh on reconnect within the window
+and after expiry, and preservation of an in-flight send's original deadline.
+A 70-minute virtual-clock test keeps one active connection without scheduled
+renewal disconnects; its local peer does not enforce service-side token expiry.
 
 Controlled tests validated on macOS ARM64 with FVM Dart 3.13.5. Linux ARM64, native
 DNS/TCP blackholes and long-running resource usage remain unverified. The late-DNS test
@@ -54,7 +74,4 @@ and reported `+1: All tests passed!`. This confirms SAS authentication, MQTT/TLS
 connection and one QoS 1 publish through PUBACK. Live reconnect, token renewal and
 downstream routing/consumption require separate validation.
 
-Token renewal/replacement, WSS, twins and public API design remain subsequent
-work. Each new connection signs a fresh token for key credentials. External SAS
-bytes are passed unchanged, including the parser's existing clock-skew allowance;
-the service determines validity. Connected sessions have no proactive renewal yet.
+External token replacement, WSS, twins and public API design remain subsequent work.

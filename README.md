@@ -25,13 +25,16 @@ client against a controlled loopback peer. It is test-only and needs no Azure cr
 An internal client now connects using device SAS credentials over MQTT/TLS and
 sends QoS 1 telemetry, completing on PUBACK. Controlled TLS tests cover retries,
 cancellation, deadlines, certificate validation, stalled-handshake cleanup and
-bounded pending work. See the [transport notes](docs/telemetry-transport.md).
+bounded pending work. Shared-key SAS tokens are cached and refreshed on reconnect
+when eligible, following C#; renewal does not schedule disconnects. See the
+[transport notes](docs/telemetry-transport.md).
 
 The prototype uses the SDK's internal operation lifecycle for linked cancellation,
 finite deadlines and delivery uncertainty. `cancellation_token` remains an internal
 dependency; its types are not exported by this package.
 
-Token renewal, secure WebSockets, twins and the public API remain unimplemented.
+External token replacement, secure WebSockets, twins and the public API remain
+unimplemented.
 The live Azure telemetry smoke test has passed in a user-run test. Linux ARM64
 and long-running reliability validation remain outstanding.
 
