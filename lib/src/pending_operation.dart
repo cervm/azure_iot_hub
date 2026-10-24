@@ -4,7 +4,15 @@ import 'package:cancellation_token/cancellation_token.dart';
 
 typedef Schedule = Timer Function(Duration delay, void Function() callback);
 
-enum OperationFailureReason { cancelled, timeout, closed, capacity }
+enum OperationFailureReason {
+  cancelled,
+  timeout,
+  closed,
+  capacity,
+  authentication,
+  tls,
+  protocol,
+}
 
 enum DeliveryState { notSubmitted, unknown }
 

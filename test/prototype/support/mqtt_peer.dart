@@ -4,25 +4,36 @@ import 'dart:io';
 // A minimal loopback MQTT peer: tests explicitly send CONNACK and PUBACK.
 // It is deliberately not an Azure emulator or a general-purpose broker.
 final class MqttPeerServer {
-  MqttPeerServer._(this._server) {
-    _listener = _server.listen((socket) {
+  MqttPeerServer._(Stream<Socket> sockets, this.port, this._closeServer) {
+    _listener = sockets.listen((socket) {
       final peer = MqttPeer(socket);
       peers.add(peer);
       _connections.add(peer);
-    });
+    }, onError: (Object error) => errors.add(error));
   }
 
-  static Future<MqttPeerServer> start() async => MqttPeerServer._(
-    await ServerSocket.bind(InternetAddress.loopbackIPv4, 0),
-  );
+  static Future<MqttPeerServer> start() async {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    return MqttPeerServer._(server, server.port, server.close);
+  }
 
-  final ServerSocket _server;
+  static Future<MqttPeerServer> startTls(SecurityContext context) async {
+    final server = await SecureServerSocket.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+      context,
+    );
+    return MqttPeerServer._(server, server.port, server.close);
+  }
+
+  final Future<void> Function() _closeServer;
+  final errors = <Object>[];
   final peers = <MqttPeer>[];
   final _connections = StreamController<MqttPeer>();
   late final _iterator = StreamIterator(_connections.stream);
   late final StreamSubscription<Socket> _listener;
   bool _listening = false;
-  int get port => _server.port;
+  final int port;
 
   Future<MqttPeer> nextConnection() async {
     _listening = true;
@@ -38,7 +49,7 @@ final class MqttPeerServer {
     await _iterator.cancel();
     await _connections.close();
     await _listener.cancel();
-    await _server.close();
+    await _closeServer();
   }
 }
 
@@ -98,8 +109,8 @@ final class MqttPeer {
     return packet;
   }
 
-  Future<void> connack() async {
-    socket.add([0x20, 2, 0, 0]);
+  Future<void> connack({int code = 0}) async {
+    socket.add([0x20, 2, 0, code]);
     await socket.flush();
   }
 

@@ -58,10 +58,11 @@ Connection behaviour is unchanged in this fork. The prototype handles the pendin
 CONNACK/disconnect issue by retaining the client until its bounded attempt settles.
 This can delay shutdown cleanup and recovery; it does not delay caller cancellation.
 
-**Unresolved:** a separate native TLS experiment showed an open peer socket after
+**Original limitation:** a separate native TLS experiment showed an open peer socket after
 a stalled handshake timed out and public disconnect ran. A finite connection future
-does not prove bounded native TLS resource cleanup. This needs resolution and
-resource testing before production reliability claims.
+does not prove bounded native TLS resource cleanup. The SDK's subsequent
+[owned TLS adapter](telemetry-transport.md) fixes this on the tested macOS runtime;
+the test-only prototype intentionally retains the original dependency transport.
 
 ## Recommendation and scope
 

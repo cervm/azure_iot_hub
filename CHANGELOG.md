@@ -9,3 +9,7 @@
   tests, fixed signature vectors and credential-redaction checks.
 - Extract the operation lifecycle into internal SDK code, using `cancellation_token`
   without exposing its types, and add deterministic cancellation/deadline tests.
+- Add internal SAS-authenticated MQTT/TLS telemetry with PUBACK completion,
+  bounded queues, reconnect/backoff and explicit delivery uncertainty.
+- Own the raw socket through TLS setup to release stalled handshakes and permit
+  recovery; add controlled TLS regressions and an opt-in Azure smoke test.

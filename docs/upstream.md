@@ -14,8 +14,8 @@ Verified on 24 October 2026:
 
 ## Initial source/test map
 
-These are reference points for the SDK. Prototype and internal authentication
-coverage are listed below; the public device APIs and twin coverage remain unimplemented.
+These are reference points for the SDK. Prototype, authentication and internal
+telemetry coverage are listed below; public device APIs and twins remain unimplemented.
 
 | Behaviour | C# reference at the pinned commit | Dart coverage to add |
 | --- | --- | --- |
@@ -96,9 +96,38 @@ must not postpone renewal or imply service-side validity after expiry.
 Errors use Dart `FormatException` without the input as its source. Diagnostic
 `toString()` methods redact credentials, as required by PSW-252; they do not provide
 C#'s connection-string serialization. These classes are internal and unexported.
-Token renewal/replacement, provider callbacks, public error types and transport
-authentication remain to be implemented. The protocol reference is Microsoft's
+Token renewal/replacement, provider callbacks and public error types remain to be
+implemented. Transport authentication is covered below. The protocol reference is Microsoft's
 [SAS authentication contract](https://learn.microsoft.com/en-us/azure/iot-hub/authenticate-authorize-sas).
+
+## Internal TLS telemetry coverage
+
+All C# paths below are relative to `iothub/device/` at the pinned commit.
+
+| Responsibility | C# source | Dart implementation / tests |
+| --- | --- | --- |
+| CONNECT identity, credentials, persistent session, keepalive and CONNACK mapping | `src/Transport/Mqtt/MqttIotHubAdapter.cs`, `src/Transport/Mqtt/ClientSettings/MqttTransportSettings.cs`, `src/Common/Api/ClientApiVersionHelper.cs` | [Device client](../lib/src/device_client.dart), [MQTT adapter](../lib/src/transport/mqtt_transport.dart), [TLS tests](../test/transport/device_client_test.dart) |
+| Telemetry topic, system/application properties and byte limits | `MqttIotHubAdapter.PopulateMessagePropertiesFromMessage`, `src/Common/UrlEncodedDictionarySerializer.cs`, `src/Common/Utils.cs` | [Message](../lib/src/telemetry_message.dart), [property tests](../test/telemetry_message_test.dart), binary wire tests in the TLS suite |
+| Retry parameters and transient/security failure classification | `src/Pipeline/RetryDelegatingHandler.cs`, `src/Pipeline/ErrorDelegatingHandler.cs`, `src/RetryPolicies/ExponentialBackoff.cs`, `src/TransientFaultHandling/ExponentialBackoffRetryStrategy.cs` | Internal recovery uses 100 ms minimum, 100 ms delta with 80–120% jitter, and a 10 s cap; controlled refusal/disconnect/TLS tests |
+| Pre-cancelled open/send and username without model ID | `tests/Transport/Mqtt/MqttTransportHandlerTests.cs`, `tests/Transport/Mqtt/MqttIotHubAdapterTest.cs` | Named adapted cases in the TLS suite, retaining MIT notices |
+
+CONNECT follows the pinned C# API version `2020-09-30`, clean session false,
+300-second advertised keepalive, 75-second idle checks and a 30-second ping-response
+deadline. Product identification names this Dart SDK. Gateway routing changes the
+socket destination, not the hub identity used in the username or SAS audience.
+
+The initial message subset supports binary payloads, application properties,
+message ID, correlation ID, content type and content encoding. Topic serialization
+uses `Uri.EscapeDataString` semantics (not SAS's form encoding), preserves null
+versus empty property values, and keeps system properties on name collisions.
+The trailing property-bag slash and C# MQTT limits (262,143-byte payload,
+65,535-byte topic) are retained. Service quotas also account for message properties.
+
+Caller cancellation types remain internal. Authentication, TLS and protocol
+failures are redacted and non-retryable for the current work; network failures and
+CONNACK server-unavailable are retryable. Native task/socket cleanup, connection
+bounds and queue limits adapt C#'s threading mechanics to Dart; see the
+[transport notes](telemetry-transport.md) for test scope and outstanding validation.
 
 ## Upstream maintenance
 
