@@ -25,3 +25,5 @@
   bounded cancellation handling, with adapted C# and Dart lifecycle tests.
   Keep snapshot retrieval and version reconciliation in the application; correct
   the pinned C# re-registration defect by agreement.
+- Add an opt-in manual Azure test for desired-property delivery and callback
+  re-registration; record the successful user-run live test.

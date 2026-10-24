@@ -97,8 +97,20 @@ again after removal. Rejected SUBACKs follow the existing protocol-error policy.
 Controlled TLS tests adapt C# registration, replacement, removal, callback and
 cancellation/timeout cases. Additional cases cover reconnect without GET, repeated
 versions, asynchronous callback work, cancellation races, missing acknowledgements,
-callback failures and shutdown. Desired notifications have not yet been tested
-against a live hub.
+callback failures and shutdown. The opt-in
+[`desired_properties_test.dart`](../test/integration/desired_properties_test.dart)
+prompts for two portal edits to verify delivery before and after callback removal
+and re-registration. It requires `AZURE_IOT_RUN_MANUAL_DESIRED=1`, independently of
+the automatic integration-test flag. The operator deletes the temporary desired
+property afterward by setting it to `null` in the portal and saving, following
+the [portal twin-editing instructions](https://learn.microsoft.com/en-us/azure/iot-hub/manage-device-twins#view-and-update-device-twins).
+This test does not exercise reconnect recovery.
+
+On 24 October 2026, the user ran the manual desired-property test against Azure
+and supplied `00:51 +1: All tests passed!`. Both requested patches arrived with
+integer versions, and the second version was greater than the first. This validates
+live delivery before and after callback removal and re-registration. Portal cleanup
+is manual and was not verified by the test; live reconnect remains unverified.
 
 The [upstream mapping](upstream.md) records the pinned implementation. The wire contract is documented in Microsoft's
 [MQTT twin guide](https://learn.microsoft.com/en-us/azure/iot-hub/iot-mqtt-connect-to-iot-hub#update-device-twins-reported-properties).

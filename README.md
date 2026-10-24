@@ -75,7 +75,26 @@ The update test writes a uniquely named `sdkPatchTest_...` reported property,
 checks nested merge/deletion, and deletes it in `finally`. It advances the reported
 version; failed network cleanup may leave the test property behind.
 
+To validate desired-property callbacks and re-registration, run the manual test
+with its separate opt-in:
+
+```sh
+AZURE_IOT_RUN_MANUAL_DESIRED=1 fvm dart test test/integration/desired_properties_test.dart --reporter expanded
+```
+
+When it prints `STEP 1 READY`, add the printed temporary property with numeric
+value `1` inside the test device twin's `properties.desired` in Azure Portal and
+save. When it prints `STEP 2 READY`, change that same property's value to `2` and
+save again. Allow the test to finish, then set the temporary property to `null`
+and save to delete it.
+Each step allows three minutes for the portal edit. The test checks both patches
+and increasing versions, with callback removal and re-registration between them.
+It does not test reconnect recovery. The device cannot perform desired-property
+cleanup itself; the test prints the property name even on failure.
+
 Run live tests sequentially when sharing a device identity; simultaneous clients
 can disconnect each other. The user-run PATCH test passed, verifying updates,
-twin retrieval and cleanup; see the [validation notes](docs/twins.md). Live
-reconnect and the longer SAS expiry test remain unverified.
+twin retrieval and cleanup. The manual desired-property test also passed,
+verifying patch delivery before and after callback removal and re-registration;
+see the [validation notes](docs/twins.md). Live reconnect and the longer SAS expiry
+test remain unverified.
