@@ -40,7 +40,7 @@ final class MqttFrameReader(
       final end = index + remaining;
       if (end > buffer.length) break;
       final frame = MqttByteBuffer.fromList(buffer.sublist(offset, end));
-      late final MqttMessage message;
+      final MqttMessage message;
       try {
         message = MqttMessage.createFrom(frame);
       } catch (_) {

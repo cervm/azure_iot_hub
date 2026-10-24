@@ -36,12 +36,12 @@ final class TelemetryMessage {
   String topic(String deviceId) {
     final topic = StringBuffer('devices/$deviceId/messages/events/');
     var first = true;
-    for (final entry in _properties.entries) {
+    for (final MapEntry(:key, :value) in _properties.entries) {
       if (!first) topic.write('&');
       first = false;
-      topic.write(escapeDataString(entry.key));
-      if (entry.value != null) {
-        topic.write('=${escapeDataString(entry.value!)}');
+      topic.write(escapeDataString(key));
+      if (value != null) {
+        topic.write('=${escapeDataString(value)}');
       }
       if (topic.length > 0xffff) {
         throw ArgumentError('Telemetry topic exceeds the MQTT limit.');

@@ -16,7 +16,7 @@ enum TransportFailureKind { network, tls, authentication, protocol }
 /// A transport failure that never includes credentials or packet contents.
 final class TransportFailure(final TransportFailureKind kind)
     implements Exception {
-  bool get isTransient => kind == TransportFailureKind.network;
+  bool get isTransient => kind == .network;
 
   @override
   String toString() => 'TransportFailure($kind)';
@@ -29,7 +29,7 @@ final class MqttTransport extends MqttClient {
     super.clientIdentifier, {
     required int port,
     required int maxBufferedBytes,
-    MqttTransportType transport = MqttTransportType.tcp,
+    MqttTransportType transport = .tcp,
     SecurityContext? securityContext,
     ConnectionDiagnostics? diagnostics,
     Schedule schedule = Timer.new,
@@ -44,7 +44,7 @@ final class MqttTransport extends MqttClient {
     );
     final bus = MqttEventBus.fromEventBus(EventBus());
     clientEventBus = bus;
-    _handler = _ConnectionHandler(
+    _handler = .new(
       bus,
       transport: transport,
       diagnostics: diagnostics,
@@ -92,14 +92,14 @@ final class _ConnectionHandler extends MqttConnectionHandlerBase {
     required this.now,
   }) : super(maxConnectionAttempts: 1) {
     _wire = switch (transport) {
-      MqttTransportType.tcp => OwnedTlsConnection(
+      .tcp => OwnedTlsConnection(
         clientEventBus,
         securityContext: securityContext,
         diagnostics: diagnostics,
         maxBufferedBytes: maxBufferedBytes,
         onFailure: _failed,
       ),
-      MqttTransportType.webSocket => OwnedWebSocketConnection(
+      .webSocket => OwnedWebSocketConnection(
         clientEventBus,
         securityContext: securityContext,
         diagnostics: diagnostics,
@@ -109,7 +109,7 @@ final class _ConnectionHandler extends MqttConnectionHandlerBase {
     };
     connection = _wire;
     initialiseListeners();
-    registerForMessage(MqttMessageType.pingResponse, (_) {
+    registerForMessage(.pingResponse, (_) {
       _pong?.cancel();
       _pong = null;
       _schedulePing();
@@ -122,7 +122,7 @@ final class _ConnectionHandler extends MqttConnectionHandlerBase {
   final DateTime Function() now;
   late final MqttConnectionBase _wire;
   final _result = Completer<MqttClientConnectionStatus>();
-  Future<void> settled = Future.value();
+  Future<void> settled = .value();
   TransportFailure? failure;
   bool _aborted = false;
   Timer? _ping;
@@ -135,12 +135,12 @@ final class _ConnectionHandler extends MqttConnectionHandlerBase {
     int port,
     MqttConnectMessage? message,
   ) {
-    connectionStatus.state = MqttConnectionState.connecting;
+    connectionStatus.state = .connecting;
     settled = _wire
         .connect(hostname, port)
         .then<void>((_) {
           if (_aborted) return;
-          diagnostics?.stage = ConnectionStage.mqttConnack;
+          diagnostics?.stage = .mqttConnack;
           // MqttClient overwrites this field. Advertise the C# default while using
           // its separate 75-second idle check and 30-second PINGRESP deadline.
           message!.variableHeader!.keepAlive = 300;
@@ -161,20 +161,17 @@ final class _ConnectionHandler extends MqttConnectionHandlerBase {
     final message = event.message as MqttConnectAckMessage;
     final code = message.variableHeader.returnCode;
     connectionStatus.returnCode = code;
-    if (code != MqttConnectReturnCode.connectionAccepted) {
+    if (code != .connectionAccepted) {
       _failed(
         TransportFailure(switch (code) {
-          MqttConnectReturnCode.brokerUnavailable =>
-            TransportFailureKind.network,
-          MqttConnectReturnCode.notAuthorized ||
-          MqttConnectReturnCode.badUsernameOrPassword =>
-            TransportFailureKind.authentication,
-          _ => TransportFailureKind.protocol,
+          .brokerUnavailable => .network,
+          .notAuthorized || .badUsernameOrPassword => .authentication,
+          _ => .protocol,
         }),
       );
       return;
     }
-    connectionStatus.state = MqttConnectionState.connected;
+    connectionStatus.state = .connected;
     connectionStatus.connectAckMessage = message;
     initialConnectionComplete = true;
     _lastReceived = now();
@@ -208,7 +205,7 @@ final class _ConnectionHandler extends MqttConnectionHandlerBase {
 
   void _schedulePing() {
     _ping?.cancel();
-    _ping = schedule(const Duration(seconds: 75), () {
+    _ping = schedule(const .new(seconds: 75), () {
       if (_aborted) return;
       if (now().difference(_lastReceived!) <= const Duration(seconds: 75)) {
         _schedulePing();
@@ -216,8 +213,8 @@ final class _ConnectionHandler extends MqttConnectionHandlerBase {
       }
       try {
         sendMessage(MqttPingRequestMessage());
-        _pong = schedule(const Duration(seconds: 30), () {
-          _failed(TransportFailure(TransportFailureKind.network));
+        _pong = schedule(const .new(seconds: 30), () {
+          _failed(TransportFailure(.network));
         });
       } catch (error) {
         _failed(error);
@@ -227,15 +224,16 @@ final class _ConnectionHandler extends MqttConnectionHandlerBase {
 
   void _failed(Object error) {
     if (_aborted) return;
-    failure = error is TransportFailure
+    final reason = error is TransportFailure
         ? error
         : TransportFailure(switch (error) {
-            HandshakeException() => TransportFailureKind.tls,
-            FormatException() => TransportFailureKind.protocol,
-            _ => TransportFailureKind.network,
+            HandshakeException() => .tls,
+            FormatException() => .protocol,
+            _ => .network,
           });
+    failure = reason;
     diagnostics?.recordFailure(
-      failure!.kind,
+      reason.kind,
       httpStatus: error is WebSocketException ? error.httpStatusCode : null,
     );
     abort();
@@ -248,11 +246,9 @@ final class _ConnectionHandler extends MqttConnectionHandlerBase {
     _ping?.cancel();
     _pong?.cancel();
     _wire.closeClient();
-    connectionStatus.state = MqttConnectionState.disconnected;
+    connectionStatus.state = .disconnected;
     if (!_result.isCompleted) {
-      _result.completeError(
-        failure ?? TransportFailure(TransportFailureKind.network),
-      );
+      _result.completeError(failure ?? TransportFailure(.network));
     }
   }
 }

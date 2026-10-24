@@ -39,7 +39,7 @@ final class PendingOperation<T> with Cancellable {
   PendingOperation({
     required this.onCancelled,
     required this.onTimeout,
-    this.timeout = const Duration(minutes: 4),
+    this.timeout = const .new(minutes: 4),
     this.schedule = Timer.new,
   }) {
     if (timeout <= Duration.zero) {
@@ -60,8 +60,7 @@ final class PendingOperation<T> with Cancellable {
 
   Future<T> get future => _completer.future;
   bool get isCompleted => _completer.isCompleted;
-  DeliveryState get delivery =>
-      _submitted ? DeliveryState.unknown : DeliveryState.notSubmitted;
+  DeliveryState get delivery => _submitted ? .unknown : .notSubmitted;
 
   /// Starts the original deadline and links caller cancellation with shutdown.
   ///
@@ -78,17 +77,13 @@ final class PendingOperation<T> with Cancellable {
     _started = true;
     _shutdown = shutdown;
     if (shutdown.isCancelled || (cancellationToken?.isCancelled ?? false)) {
-      fail(
-        shutdown.isCancelled
-            ? OperationFailureReason.closed
-            : OperationFailureReason.cancelled,
-      );
+      fail(shutdown.isCancelled ? .closed : .cancelled);
       onCancelled();
       return false;
     }
     _timer = schedule(timeout, () {
       if (_released) return;
-      fail(OperationFailureReason.timeout);
+      fail(.timeout);
       onTimeout();
     });
     return maybeAttach(
@@ -134,11 +129,7 @@ final class PendingOperation<T> with Cancellable {
   void onCancel(Exception cancelException) {
     super.onCancel(cancelException);
     if (isCompleted) return;
-    fail(
-      _shutdown?.isCancelled ?? false
-          ? OperationFailureReason.closed
-          : OperationFailureReason.cancelled,
-    );
+    fail(_shutdown?.isCancelled ?? false ? .closed : .cancelled);
     onCancelled();
   }
 }

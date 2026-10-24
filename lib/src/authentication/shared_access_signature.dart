@@ -15,7 +15,7 @@ final class SharedAccessSignature {
     required String key,
     required String target,
     required DateTime now,
-    Duration timeToLive = const Duration(hours: 1),
+    Duration timeToLive = const .new(hours: 1),
     String? keyName,
   }) {
     final keyBytes = decodeSharedAccessKey(key);
@@ -30,10 +30,10 @@ final class SharedAccessSignature {
     final policy = keyName == null || keyName.trim().isEmpty
         ? ''
         : '&skn=${encodeSasComponent(keyName)}';
-    return SharedAccessSignature._(
+    return ._(
       'SharedAccessSignature sr=$audience'
       '&sig=${encodeSasComponent(signature)}&se=$expiry$policy',
-      DateTime.fromMillisecondsSinceEpoch(expiry * 1000, isUtc: true),
+      .fromMillisecondsSinceEpoch(expiry * 1000, isUtc: true),
     );
   }
 
@@ -43,12 +43,12 @@ final class SharedAccessSignature {
   /// not extend the token's service-side validity or its renewal deadline.
   factory SharedAccessSignature.parse(String value, {required DateTime now}) {
     // C# requires exactly one whitespace separator after the scheme.
-    final parts = value.split(RegExp(r'\s'));
-    if (parts.length != 2 || parts[0] != 'SharedAccessSignature') {
-      throw const FormatException('Malformed SAS token.');
-    }
+    final body = switch (value.split(RegExp(r'\s'))) {
+      ['SharedAccessSignature', final body] => body,
+      _ => throw const FormatException('Malformed SAS token.'),
+    };
     final fields = <String, String>{};
-    for (final field in parts[1].split('&')) {
+    for (final field in body.split('&')) {
       if (field.isEmpty) continue;
       final separator = field.indexOf('=');
       if (separator < 0) throw const FormatException('Malformed SAS token.');
@@ -58,22 +58,23 @@ final class SharedAccessSignature {
       }
       fields[name] = field.substring(separator + 1);
     }
-    if (!fields.containsKey('sr') ||
-        !fields.containsKey('sig') ||
-        !fields.containsKey('se')) {
-      throw const FormatException('SAS token requires sr, sig and se fields.');
-    }
+    final encodedExpiry = switch (fields) {
+      {'sr': _, 'sig': _, 'se': final expiry} => expiry,
+      _ => throw const FormatException(
+        'SAS token requires sr, sig and se fields.',
+      ),
+    };
 
     final DateTime expiresOn;
     try {
-      final seconds = double.parse(Uri.decodeQueryComponent(fields['se']!));
+      final seconds = double.parse(Uri.decodeQueryComponent(encodedExpiry));
       // Match the C# DateTime range before converting to Dart's wider range.
       if (!seconds.isFinite ||
           seconds < -62135596800 ||
           seconds >= 253402300800) {
         throw const FormatException();
       }
-      expiresOn = DateTime.fromMicrosecondsSinceEpoch(
+      expiresOn = .fromMicrosecondsSinceEpoch(
         (seconds * Duration.microsecondsPerSecond).truncate(),
         isUtc: true,
       );
@@ -83,10 +84,10 @@ final class SharedAccessSignature {
     } on ArgumentError {
       throw const FormatException('Invalid SAS token expiry.');
     }
-    if (expiresOn.add(const Duration(minutes: 5)).isBefore(now)) {
+    if (expiresOn.add(const .new(minutes: 5)).isBefore(now)) {
       throw const FormatException('SAS token has expired.');
     }
-    return SharedAccessSignature._(value, expiresOn);
+    return ._(value, expiresOn);
   }
 
   /// The credential sent as the MQTT password; must never be logged.

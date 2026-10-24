@@ -4,7 +4,7 @@ enum MqttTransportType {
   webSocket;
 
   int get defaultPort => switch (this) {
-    tcp => 8883,
-    webSocket => 443,
+    .tcp => 8883,
+    .webSocket => 443,
   };
 }

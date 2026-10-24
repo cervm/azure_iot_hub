@@ -13,7 +13,7 @@ enum ConnectionStage {
 /// A bounded internal snapshot for diagnosing connection failures safely.
 final class ConnectionDiagnostics {
   int attempts = 0;
-  ConnectionStage stage = ConnectionStage.idle;
+  ConnectionStage stage = .idle;
   ConnectionStage? failureStage;
   String? failure;
   int? httpStatus;

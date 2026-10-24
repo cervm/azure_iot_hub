@@ -25,12 +25,12 @@ import 'twin.dart';
 final class DeviceClient {
   DeviceClient(
     this.credentials, {
-    this.operationTimeout = const Duration(minutes: 4),
-    this.connectionTimeout = const Duration(seconds: 60),
-    this.twinResponseTimeout = const Duration(seconds: 60),
+    this.operationTimeout = const .new(minutes: 4),
+    this.connectionTimeout = const .new(seconds: 60),
+    this.twinResponseTimeout = const .new(seconds: 60),
     this.maxPending = 16,
     this.maxPendingBytes = 4 * 1024 * 1024,
-    this.transport = MqttTransportType.tcp,
+    this.transport = .tcp,
     int? port,
     this.securityContext,
     this.schedule = Timer.new,
@@ -38,7 +38,7 @@ final class DeviceClient {
     int Function(int)? randomInt,
   }) : port = port ?? transport.defaultPort,
        _randomInt = randomInt ?? Random().nextInt,
-       _sasTokens = SasTokenCache(credentials, now: now) {
+       _sasTokens = .new(credentials, now: now) {
     if (operationTimeout <= Duration.zero ||
         connectionTimeout <= Duration.zero ||
         twinResponseTimeout <= Duration.zero ||
@@ -87,17 +87,17 @@ final class DeviceClient {
   bool get isConnected => _connected;
 
   Future<void> open({CancellationToken? cancellationToken}) =>
-      _submit(_OperationKind.open, null, cancellationToken);
+      _submit(.open, null, cancellationToken);
 
   Future<void> sendEvent(
     TelemetryMessage message, {
     CancellationToken? cancellationToken,
-  }) => _submit(_OperationKind.telemetry, message, cancellationToken);
+  }) => _submit(.telemetry, message, cancellationToken);
 
   /// Retrieves twin properties after PUBACK and a matching service response.
   Future<TwinProperties> getTwin({
     CancellationToken? cancellationToken,
-  }) async => (await _submit(_OperationKind.twinGet, null, cancellationToken))!;
+  }) async => (await _submit(.twinGet, null, cancellationToken))!;
 
   /// Updates reported properties after PUBACK and a matching service response.
   ///
@@ -109,7 +109,7 @@ final class DeviceClient {
     CancellationToken? cancellationToken,
   }) async {
     await _submit(
-      _OperationKind.twinPatch,
+      .twinPatch,
       null,
       cancellationToken,
       reportedProperties: properties,
@@ -125,7 +125,7 @@ final class DeviceClient {
     DesiredPropertyUpdateCallback? callback, {
     CancellationToken? cancellationToken,
   }) => _submit(
-    _OperationKind.desiredSubscription,
+    .desiredSubscription,
     null,
     cancellationToken,
     desiredCallback: callback,
@@ -144,9 +144,9 @@ final class DeviceClient {
         ? OperationFailureReason.cancelled
         : null;
     if (reason != null) {
-      return Future.error(OperationFailure(reason, DeliveryState.notSubmitted));
+      return Future.error(OperationFailure(reason, .notSubmitted));
     }
-    if (kind == _OperationKind.desiredSubscription &&
+    if (kind == .desiredSubscription &&
         !_pending.any((operation) => operation.kind == kind) &&
         (_desiredCallback != null) == (desiredCallback != null)) {
       // Replacing a callback (or clearing an absent one) needs no wire exchange.
@@ -154,14 +154,13 @@ final class DeviceClient {
       return Future.value();
     }
     final topic = switch (kind) {
-      _OperationKind.twinGet => r'$iothub/twin/GET/?$rid=',
-      _OperationKind.twinPatch =>
-        r'$iothub/twin/PATCH/properties/reported/?$rid=',
-      _OperationKind.telemetry => message!.topic(credentials.deviceId),
-      _OperationKind.open || _OperationKind.desiredSubscription => null,
+      .twinGet => r'$iothub/twin/GET/?$rid=',
+      .twinPatch => r'$iothub/twin/PATCH/properties/reported/?$rid=',
+      .telemetry => message!.topic(credentials.deviceId),
+      .open || .desiredSubscription => null,
     };
     if (topic != null) PublicationTopic(topic);
-    final payload = kind == _OperationKind.twinPatch
+    final payload = kind == .twinPatch
         ? encodeReportedProperties(reportedProperties!)
         : message?.payload ?? const <int>[];
     final size = topic == null
@@ -172,12 +171,7 @@ final class DeviceClient {
               8;
     if (_pending.length >= maxPending ||
         _pendingBytes + size > maxPendingBytes) {
-      return Future.error(
-        OperationFailure(
-          OperationFailureReason.capacity,
-          DeliveryState.notSubmitted,
-        ),
-      );
+      return Future.error(OperationFailure(.capacity, .notSubmitted));
     }
     if (_recoveryStopped) {
       _recoveryStopped = false;
@@ -199,7 +193,8 @@ final class DeviceClient {
         onTimeout: () {
           final submitted = _hasReservation(operation);
           _release(operation);
-          if (submitted && _attempt != null) _lost(_attempt!);
+          final attempt = _attempt;
+          if (submitted && attempt != null) _lost(attempt);
         },
       ),
       desiredCallback: desiredCallback,
@@ -250,7 +245,7 @@ final class DeviceClient {
     _Attempt? current;
     var timedOut = false;
     connectionDiagnostics.attempts++;
-    connectionDiagnostics.stage = ConnectionStage.authentication;
+    connectionDiagnostics.stage = .authentication;
     final deadline = schedule(connectionTimeout, () {
       timedOut = true;
       connectionDiagnostics.recordFailure(OperationFailureReason.timeout);
@@ -286,8 +281,8 @@ final class DeviceClient {
         token.value,
       );
       if (_closed || !identical(_attempt, attempt)) return;
-      if (status?.state != MqttConnectionState.connected) {
-        throw TransportFailure(TransportFailureKind.network);
+      if (status?.state != .connected) {
+        throw TransportFailure(.network);
       }
       attempt.subscription = transport.published!.listen((message) {
         if (!identical(_attempt, attempt)) return;
@@ -297,8 +292,9 @@ final class DeviceClient {
         if (operation == null) return;
         operation.packetId = null;
         if (operation.kind.isTwin && !operation.completion.isCompleted) {
-          if (operation.response != null) {
-            _finishTwinResponse(operation);
+          final response = operation.response;
+          if (response != null) {
+            _finishTwinResponse(operation, response);
           } else {
             operation.responseTimer = schedule(
               twinResponseTimeout,
@@ -354,12 +350,11 @@ final class DeviceClient {
       };
       transport.onSubscribeFail = (_) {
         if (_closed || !identical(_attempt, attempt)) return;
-        _stopRecovery(OperationFailureReason.protocol);
+        _stopRecovery(.protocol);
         _lost(attempt);
       };
-      connectionDiagnostics.stage = ConnectionStage.twinSubscription;
-      if (transport.subscribe(r'$iothub/twin/res/#', MqttQos.atLeastOnce) ==
-          null) {
+      connectionDiagnostics.stage = .twinSubscription;
+      if (transport.subscribe(r'$iothub/twin/res/#', .atLeastOnce) == null) {
         _lost(attempt);
       }
     } catch (error) {
@@ -370,7 +365,7 @@ final class DeviceClient {
         // malformed credentials. Never retain a provider's exception text.
         if (error is TlsException) {
           connectionDiagnostics.recordFailure(OperationFailureReason.tls);
-          _stopRecovery(OperationFailureReason.tls);
+          _stopRecovery(.tls);
         } else if (error is TimeoutException) {
           connectionDiagnostics.recordFailure(OperationFailureReason.timeout);
         } else if (error is IOException ||
@@ -380,7 +375,7 @@ final class DeviceClient {
           connectionDiagnostics.recordFailure(
             OperationFailureReason.authentication,
           );
-          _stopRecovery(OperationFailureReason.authentication);
+          _stopRecovery(.authentication);
         }
       }
     } finally {
@@ -398,7 +393,7 @@ final class DeviceClient {
   void _connectedReady(_Attempt attempt) {
     attempt.deadline?.cancel();
     _connected = true;
-    connectionDiagnostics.stage = ConnectionStage.ready;
+    connectionDiagnostics.stage = .ready;
     _retryCount = 0;
     _flush();
   }
@@ -417,8 +412,7 @@ final class DeviceClient {
     try {
       operation?.completion.markSubmitted();
       if (subscribe) {
-        if (attempt.transport.subscribe(_desiredTopic, MqttQos.atLeastOnce) ==
-            null) {
+        if (attempt.transport.subscribe(_desiredTopic, .atLeastOnce) == null) {
           _lost(attempt);
         }
       } else {
@@ -457,7 +451,7 @@ final class DeviceClient {
       if (operation.completion.isCompleted || operation.packetId != null) {
         continue;
       }
-      if (operation.kind == _OperationKind.desiredSubscription) {
+      if (operation.kind == .desiredSubscription) {
         if (attempt.desiredAction != null) continue;
         final subscribe = operation.desiredCallback != null;
         if (attempt.desiredSubscribed == subscribe) {
@@ -473,7 +467,7 @@ final class DeviceClient {
         }
         continue;
       }
-      if (operation.kind == _OperationKind.open) {
+      if (operation.kind == .open) {
         operation.completion.complete(null);
         _release(operation);
         continue;
@@ -491,7 +485,7 @@ final class DeviceClient {
         operation.completion.markSubmitted();
         final id = attempt.transport.publishMessage(
           topic!,
-          MqttQos.atLeastOnce,
+          .atLeastOnce,
           bytes,
         );
         operation.packetId = id;
@@ -520,28 +514,24 @@ final class DeviceClient {
       return;
     }
     if (_pendingBytes + payload.length > maxPendingBytes) {
-      operation.completion.fail(OperationFailureReason.capacity);
+      operation.completion.fail(.capacity);
       _clearTwinRequest(operation);
       if (operation.packetId == null) _release(operation);
       return;
     }
     operation.response = response;
     _pendingBytes += payload.length;
-    if (operation.packetId == null) _finishTwinResponse(operation);
+    if (operation.packetId == null) _finishTwinResponse(operation, response);
   }
 
-  void _finishTwinResponse(_Operation operation) {
-    final response = operation.response!;
+  void _finishTwinResponse(_Operation operation, TwinResponse response) {
     if (response.status == 429) {
       _retryTwin(operation);
       return;
     }
     if (response.status >= 300) {
-      operation.completion.fail(
-        OperationFailureReason.service,
-        statusCode: response.status,
-      );
-    } else if (operation.kind == _OperationKind.twinPatch) {
+      operation.completion.fail(.service, statusCode: response.status);
+    } else if (operation.kind == .twinPatch) {
       // C# ignores successful PATCH response bodies, including empty 204s.
       operation.completion.complete(null);
     } else {
@@ -550,7 +540,7 @@ final class DeviceClient {
           TwinProperties.fromBytes(response.payload),
         );
       } on FormatException {
-        operation.completion.fail(OperationFailureReason.protocol);
+        operation.completion.fail(.protocol);
       }
     }
     _release(operation);
@@ -597,10 +587,9 @@ final class DeviceClient {
     final failure = attempt.transport.failure;
     if (failure != null && !failure.isTransient) {
       _stopRecovery(switch (failure.kind) {
-        TransportFailureKind.authentication =>
-          OperationFailureReason.authentication,
-        TransportFailureKind.tls => OperationFailureReason.tls,
-        _ => OperationFailureReason.protocol,
+        .authentication => .authentication,
+        .tls => .tls,
+        _ => .protocol,
       });
     }
     _scheduleRetry();
@@ -634,9 +623,7 @@ final class DeviceClient {
   Duration _retryDelay(int count) {
     // C# default: 100ms minimum, 100ms delta with 80–120% jitter, 10s cap.
     final factor = (1 << min(count, 8)) - 1;
-    return Duration(
-      milliseconds: min(10000, 100 + factor * (80 + _randomInt(40))),
-    );
+    return .new(milliseconds: min(10000, 100 + factor * (80 + _randomInt(40))));
   }
 
   Future<void> close() async {
@@ -648,7 +635,8 @@ final class DeviceClient {
     _authenticationDeadline?.cancel();
     _authenticationDeadline = null;
     _shutdown.cancel();
-    if (_attempt != null) _lost(_attempt!);
+    final attempt = _attempt;
+    if (attempt != null) _lost(attempt);
     for (final operation in _pending.toList()) {
       _release(operation);
     }

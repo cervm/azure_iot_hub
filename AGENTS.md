@@ -4,6 +4,8 @@
 - Ask when requirements are unclear. Discuss public API choices, new dependencies,
   and intentional behaviour changes before implementing them.
 - Use modern, idiomatic Dart and the FVM-pinned SDK. Keep this package pure Dart.
+- Use dot shorthand when an explicit declaration or clear argument/return context
+  identifies the type. Keep type names where shorthand would obscure the meaning.
 - Target native Dart runtimes, prioritising Linux ARM64.
 - Use the pinned stable C# SDK's observable behaviour as the baseline for supported
   features. Keep responsibilities and tests recognisable for upstream comparison;

@@ -108,6 +108,40 @@ void main() {
     expect(parsed.sharedAccessSignature, isNull);
   });
 
+  test('an empty unused key does not override a supplied SAS', () {
+    // C# ValidateFormatIfSpecified skips an empty key; its credential selection
+    // then uses the supplied SAS. An empty field and an absent field agree.
+    final parsed = _parse(
+      'HostName=$_host;DeviceId=device1;SharedAccessKey=;'
+      'SharedAccessSignature=$_suppliedToken',
+    );
+    expect(parsed.sharedAccessKey, isNull);
+    expect(parsed.sharedAccessSignature?.value, _suppliedToken);
+    expect(parsed.createSasToken(now: _now).value, _suppliedToken);
+  });
+
+  test('an empty key does not bypass missing or malformed SAS validation', () {
+    for (final suffix in [
+      '',
+      ';SharedAccessSignature=',
+      ';SharedAccessSignature=secret',
+    ]) {
+      expect(
+        () =>
+            _parse('HostName=$_host;DeviceId=device1;SharedAccessKey=$suffix'),
+        throwsA(
+          isA<FormatException>()
+              .having((error) => error.source, 'source', isNull)
+              .having(
+                (error) => error.toString(),
+                'message',
+                isNot(contains('secret')),
+              ),
+        ),
+      );
+    }
+  });
+
   test('unsupported module and X.509 credentials cannot become device SAS', () {
     for (final property in ['ModuleId=module', 'X509Cert=true', 'x509=TrUe']) {
       expect(() => _parse('$_connection;$property'), throwsUnsupportedError);

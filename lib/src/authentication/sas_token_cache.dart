@@ -33,12 +33,11 @@ final class SasTokenCache(
   final _bufferFraction = _singlePrecision(
     (renewalBufferPercentage == 0 ? 15 : renewalBufferPercentage) / 100,
   );
-  SharedAccessSignature? _token;
-  DateTime? _refreshesOn;
+  ({SharedAccessSignature token, DateTime refreshesOn})? _cached;
   Future<void>? _refreshing;
 
   /// The acquired token's renewal threshold, or null before acquiring one.
-  DateTime? get refreshesOn => _refreshesOn;
+  DateTime? get refreshesOn => _cached?.refreshesOn;
 
   /// Returns the fixed SAS unchanged, or reuses or refreshes a cached SAS.
   Future<SharedAccessSignature> getToken() async {
@@ -47,8 +46,10 @@ final class SasTokenCache(
     // A failed refresh releases the waiters to try independently. A successful
     // refresh may already be eligible again (for example with a 100% buffer).
     while (true) {
-      final cached = _token;
-      if (cached != null && now().isBefore(_refreshesOn!)) return cached;
+      final cached = _cached;
+      if (cached != null && now().isBefore(cached.refreshesOn)) {
+        return cached.token;
+      }
       final refreshing = _refreshing;
       if (refreshing == null) break;
       await refreshing;
@@ -70,8 +71,10 @@ final class SasTokenCache(
       final bufferSeconds = _singlePrecision(
         _singlePrecision(remainingSeconds.toDouble()) * _bufferFraction,
       ).truncate();
-      _refreshesOn = token.expiresOn.subtract(Duration(seconds: bufferSeconds));
-      _token = token;
+      _cached = (
+        token: token,
+        refreshesOn: token.expiresOn.subtract(.new(seconds: bufferSeconds)),
+      );
       return token;
     } finally {
       _refreshing = null;

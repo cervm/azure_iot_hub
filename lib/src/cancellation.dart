@@ -6,9 +6,7 @@ import 'package:cancellation_token/cancellation_token.dart' as backend;
 /// Cancellation is permanent; create a new source for a new cancellation scope.
 final class CancellationTokenSource() {
   /// The token through which operations observe this source's cancellation.
-  final CancellationToken token = CancellationToken._(
-    backend.CancellationToken(),
-  );
+  final CancellationToken token = ._(backend.CancellationToken());
 
   /// Requests cancellation of all operations using [token].
   ///

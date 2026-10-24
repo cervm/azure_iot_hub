@@ -37,3 +37,6 @@
 - Export SDK-owned cancellation source/token wrappers and connect them to all
   client operations. Keep dependency types internal; verify shared cancellation,
   finite deadlines and listener cleanup over TLS and WSS.
+- Simplify null handling with validated return values, parsing patterns and a
+  combined token-cache record. Match C# when a supplied SAS has an empty unused
+  shared-key field, with regression coverage.

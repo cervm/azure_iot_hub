@@ -45,10 +45,16 @@ final class IotHubConnectionString {
       fields[name] = value.substring(match.end, end);
     }
 
-    final hostName = fields['hostname'];
-    final deviceId = fields['deviceid'];
-    _validate(hostName, 'HostName', _hostNamePattern);
-    _validate(deviceId, 'DeviceId', _deviceIdPattern);
+    final hostName = _validate(
+      fields['hostname'],
+      'HostName',
+      _hostNamePattern,
+    );
+    final deviceId = _validate(
+      fields['deviceid'],
+      'DeviceId',
+      _deviceIdPattern,
+    );
     if (fields.containsKey('moduleid')) {
       throw UnsupportedError('Module credentials are not supported.');
     }
@@ -57,7 +63,9 @@ final class IotHubConnectionString {
       throw UnsupportedError('X.509 credentials are not supported.');
     }
 
-    final key = fields['sharedaccesskey'];
+    // C# treats an empty key as absent when selecting SAS authentication.
+    final rawKey = fields['sharedaccesskey'];
+    final key = rawKey == '' ? null : rawKey;
     final token = fields['sharedaccesssignature'];
     if ((key == null || key.trim().isEmpty) ==
         (token == null || token.trim().isEmpty)) {
@@ -80,15 +88,13 @@ final class IotHubConnectionString {
     if (gateway != null && gateway.isNotEmpty) {
       _validate(gateway, 'GatewayHostName', _hostNamePattern);
     }
-    return IotHubConnectionString._(
-      hostName: hostName!,
-      deviceId: deviceId!,
+    return ._(
+      hostName: hostName,
+      deviceId: deviceId,
       gatewayHostName: gateway,
       sharedAccessKey: key,
       sharedAccessKeyName: keyName,
-      sharedAccessSignature: key != null
-          ? null
-          : SharedAccessSignature.parse(token!, now: now),
+      sharedAccessSignature: key != null ? null : .parse(token!, now: now),
     );
   }
 
@@ -104,7 +110,7 @@ final class IotHubConnectionString {
     if (gatewayHostName != null && gatewayHostName.isNotEmpty) {
       _validate(gatewayHostName, 'GatewayHostName', _hostNamePattern);
     }
-    return IotHubConnectionString._(
+    return ._(
       hostName: hostName,
       deviceId: deviceId,
       gatewayHostName: gatewayHostName,
@@ -121,8 +127,10 @@ final class IotHubConnectionString {
   final SasTokenProvider? tokenProvider;
 
   /// The network destination, which can differ from the SAS audience.
-  String get connectionHostName =>
-      gatewayHostName?.isNotEmpty ?? false ? gatewayHostName! : hostName;
+  String get connectionHostName {
+    final gateway = gatewayHostName;
+    return gateway != null && gateway.isNotEmpty ? gateway : hostName;
+  }
 
   /// Produces a device-scoped token, or a hub-scoped token for a policy key.
   ///
@@ -130,7 +138,7 @@ final class IotHubConnectionString {
   /// The client must arrange renewal or replacement before its actual expiry.
   SharedAccessSignature createSasToken({
     required DateTime now,
-    Duration timeToLive = const Duration(hours: 1),
+    Duration timeToLive = const .new(hours: 1),
   }) {
     if (tokenProvider != null) {
       throw StateError(
@@ -141,7 +149,7 @@ final class IotHubConnectionString {
     if (supplied != null) {
       return supplied;
     }
-    return SharedAccessSignature.generate(
+    return .generate(
       key: sharedAccessKey!,
       target: sharedAccessKeyName == null
           ? '$hostName/devices/${encodeSasComponent(deviceId)}'
@@ -161,8 +169,9 @@ final _hostNamePattern = RegExp(r'[a-zA-Z0-9_\-.]+$');
 final _deviceIdPattern = RegExp(r"^[A-Za-z0-9\-:.+%_#*?!(),=@;$']{1,128}$");
 final _keyNamePattern = RegExp(r'^[a-zA-Z0-9_\-@.]+$');
 
-void _validate(String? value, String property, RegExp pattern) {
+String _validate(String? value, String property, RegExp pattern) {
   if (value == null || value.trim().isEmpty || !pattern.hasMatch(value)) {
     throw FormatException('Missing or invalid $property.');
   }
+  return value;
 }

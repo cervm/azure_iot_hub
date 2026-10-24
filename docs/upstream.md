@@ -131,6 +131,10 @@ credentials. Dart has no thread-local culture setting; its culture case checks
 that device ID casing is preserved. Module and X.509 credentials are explicitly
 unsupported in this initial device SAS subset.
 
+Regression cases also cover a valid SAS with an empty `SharedAccessKey=` field.
+C#'s `ValidateFormatIfSpecified` skips the empty key and credential selection uses
+the SAS. Dart normalizes that key to absent; missing or malformed SAS still fails.
+
 Signing preserves C#'s one-hour builder default, `WebUtility.UrlEncode` semantics,
 device-ID encoding before audience encoding, hub scope for policy keys and
 round-to-even expiry seconds. External tokens retain their original bytes and
