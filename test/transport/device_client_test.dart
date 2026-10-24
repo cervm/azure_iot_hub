@@ -17,50 +17,7 @@ import 'package:test/test.dart';
 
 import '../prototype/support/manual_time.dart';
 import '../prototype/support/mqtt_peer.dart';
-
-const certificate = 'test/transport/fixtures/localhost-cert.pem';
-const privateKey = 'test/transport/fixtures/localhost-key.pem';
-final epoch = DateTime.utc(2026, 10, 24);
-
-SecurityContext serverContext() => SecurityContext()
-  ..useCertificateChain(certificate)
-  ..usePrivateKey(privateKey);
-SecurityContext clientContext() =>
-    SecurityContext()
-      ..setTrustedCertificates('test/transport/fixtures/ca-cert.pem');
-
-IotHubConnectionString credentials() => IotHubConnectionString.parse(
-  'HostName=hub.azure-devices.net;DeviceId=device-1;'
-  'GatewayHostName=127.0.0.1;SharedAccessKey=c2VjcmV0',
-  now: epoch,
-);
-
-Matcher failure(OperationFailureReason reason, DeliveryState delivery) =>
-    isA<OperationFailure>()
-        .having((error) => error.reason, 'reason', reason)
-        .having((error) => error.delivery, 'delivery', delivery);
-
-Future<void> until(bool Function() condition) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 3));
-  while (!condition()) {
-    if (DateTime.now().isAfter(deadline)) fail('I/O condition did not settle.');
-    await Future<void>.delayed(const Duration(milliseconds: 1));
-  }
-}
-
-String connectPassword(Packet packet) {
-  // MQTT 3.1.1 variable header, then client ID, username and password (no will).
-  var offset = 10;
-  final fields = <String>[];
-  while (offset < packet.body.length) {
-    final length = (packet.body[offset] << 8) | packet.body[offset + 1];
-    offset += 2;
-    fields.add(utf8.decode(packet.body.sublist(offset, offset + length)));
-    offset += length;
-  }
-  expect(fields, hasLength(3));
-  return fields.last;
-}
+import 'support/device_test_support.dart';
 
 void main() {
   late MqttPeerServer server;
@@ -97,7 +54,7 @@ void main() {
     final opening = client.open();
     final peer = await server.nextConnection();
     await peer.nextPacket(1);
-    await peer.connack();
+    await peer.connack(twinResponses: true);
     await opening;
     return peer;
   }
@@ -131,7 +88,7 @@ void main() {
     );
     expect(readString(), credentials().createSasToken(now: epoch).value);
     expect(offset, body.length);
-    await peer.connack();
+    await peer.connack(twinResponses: true);
     await opening;
   });
 
@@ -151,7 +108,7 @@ void main() {
           .then((_) => completed = true);
       final peer = await server.nextConnection();
       await peer.nextPacket(1);
-      await peer.connack();
+      await peer.connack(twinResponses: true);
       final publish = await peer.nextPacket(3);
       expect(publish.header, 0x32);
       final length = (publish.body[0] << 8) | publish.body[1];
@@ -251,7 +208,7 @@ void main() {
     time.elapse(const Duration(milliseconds: 100));
     final replacement = await server.nextConnection();
     await replacement.nextPacket(1);
-    await replacement.connack();
+    await replacement.connack(twinResponses: true);
     await replacement.nextPacket(3);
     time.elapse(const Duration(milliseconds: 3900));
     await sending;
@@ -265,7 +222,7 @@ void main() {
         final opening = client.open();
         final first = await server.nextConnection();
         final original = connectPassword(await first.nextPacket(1));
-        await first.connack();
+        await first.connack(twinResponses: true);
         await opening;
         wallClockOffset = Duration(minutes: minutes);
         await first.close();
@@ -284,7 +241,7 @@ void main() {
                 .value,
           );
         }
-        await replacement.connack();
+        await replacement.connack(twinResponses: true);
         final sending = client.sendEvent(TelemetryMessage([1]));
         final publish = await replacement.nextPacket(3);
         await replacement.puback(publish.packetId);
@@ -333,7 +290,7 @@ void main() {
             .createSasToken(now: epoch.add(wallClockOffset + time.elapsed))
             .value,
       );
-      await replacement.connack();
+      await replacement.connack(twinResponses: true);
       await opening;
     },
   );
@@ -362,7 +319,7 @@ void main() {
             .createSasToken(now: epoch.add(wallClockOffset + time.elapsed))
             .value,
       );
-      await replacement.connack();
+      await replacement.connack(twinResponses: true);
       await replacement.nextPacket(3);
       time.elapse(const Duration(milliseconds: 3900));
       await sending;
@@ -385,7 +342,7 @@ void main() {
       await peer.nextPacket(1);
       token.cancel();
       await cancelled;
-      await peer.connack();
+      await peer.connack(twinResponses: true);
       final packet = await peer.nextPacket(3);
       expect(packet.body.last, 2);
       await peer.puback(packet.packetId);
@@ -438,7 +395,7 @@ void main() {
       final retrying = client.open();
       final next = await server.nextConnection();
       await next.nextPacket(1);
-      await next.connack();
+      await next.connack(twinResponses: true);
       await retrying;
     },
   );
@@ -493,6 +450,7 @@ void main() {
       await peer.socket.flush();
       await pumpEventQueue();
     }
+    await peer.acceptTwinSubscription();
     final packet = await peer.nextPacket(3);
     for (final byte in [0x40, 2, packet.packetId >> 8, packet.packetId & 255]) {
       peer.socket.add([byte]);
@@ -639,7 +597,7 @@ void main() {
     time.elapse(const Duration(milliseconds: 1));
     final replacement = await server.nextConnection();
     await replacement.nextPacket(1);
-    await replacement.connack();
+    await replacement.connack(twinResponses: true);
     await opening;
   });
 

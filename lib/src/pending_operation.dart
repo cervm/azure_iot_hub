@@ -12,6 +12,7 @@ enum OperationFailureReason {
   authentication,
   tls,
   protocol,
+  service,
 }
 
 enum DeliveryState { notSubmitted, unknown }
@@ -19,10 +20,13 @@ enum DeliveryState { notSubmitted, unknown }
 /// An internal operation failure, without transport or credential details.
 final class OperationFailure(
   final OperationFailureReason reason,
-  final DeliveryState delivery,
-) implements Exception {
+  final DeliveryState delivery, {
+  final int? statusCode,
+}) implements Exception {
   @override
-  String toString() => 'OperationFailure($reason, $delivery)';
+  String toString() =>
+      'OperationFailure($reason, $delivery'
+      '${statusCode == null ? '' : ', status: $statusCode'})';
 }
 
 /// A caller's completion and deadline, independent of connection recovery.
@@ -107,11 +111,13 @@ final class PendingOperation<T> with Cancellable {
     _completer.complete(value);
   }
 
-  void fail(OperationFailureReason reason) {
+  void fail(OperationFailureReason reason, {int? statusCode}) {
     if (isCompleted) return;
     detach();
     _shutdown = null;
-    _completer.completeError(OperationFailure(reason, delivery));
+    _completer.completeError(
+      OperationFailure(reason, delivery, statusCode: statusCode),
+    );
   }
 
   /// Releases deadline and listener resources after the caller has settled.

@@ -1,8 +1,9 @@
 # Internal telemetry transport
 
 The unexported `DeviceClient` now supports connection strings, SAS authentication,
-implicit open and QoS 1 telemetry over TLS on port 8883. A successful send means
-PUBACK arrived; cancellation or failure after submission reports unknown delivery.
+implicit open, twin retrieval and QoS 1 telemetry over TLS on port 8883.
+A successful send means PUBACK arrived; cancellation or failure after submission
+reports unknown delivery.
 Retries can produce duplicate telemetry, as with C# QoS 1 sends.
 
 `MqttTransport` retains the pinned fork's codec, packet identifiers and publish
@@ -25,6 +26,9 @@ another MQTT client enables the package's global logger.
 - Connection attempts have a 60-second total deadline. The raw socket closes even
   if the peer stalls TLS; retirement also releases the caller of the TLS future,
   which Dart may otherwise leave pending after raw socket closure.
+- Open completes after the twin-response subscription is acknowledged, following
+  C#. The connection deadline also covers that SUBACK wait. A rejected subscription
+  fails open with a protocol error, as explicitly agreed.
 - Dart cannot cancel native DNS resolution before `startConnect` returns its task.
   The client serializes that setup, cancels late tasks and closes late sockets.
   Operations and shutdown still settle promptly; recovery can wait for DNS.
@@ -74,4 +78,7 @@ and reported `+1: All tests passed!`. This confirms SAS authentication, MQTT/TLS
 connection and one QoS 1 publish through PUBACK. Live reconnect, token renewal and
 downstream routing/consumption require separate validation.
 
-External token replacement, WSS, twins and public API design remain subsequent work.
+The previous live smoke result predates the connection-time twin subscription;
+that added step and [twin retrieval](twin-retrieval.md) have only controlled validation.
+External token replacement, WSS, remaining twin operations and public API design
+remain subsequent work. The live SAS expiry test is deferred.

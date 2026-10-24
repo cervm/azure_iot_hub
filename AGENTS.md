@@ -10,6 +10,8 @@
   adapt threading and language mechanics to Dart.
 - Microsoft's IoT Hub protocol contract governs conflicts. Discuss and record
   deviations; do not silently improve or simplify behaviour.
+- Fail open with a protocol error when the twin-response subscription is rejected.
+  This is an agreed deviation from C# ignoring the SUBACK failure code.
 - Use the pinned reference and source/test mapping in [docs/upstream.md](docs/upstream.md).
   Preserve copyright and licence notices for adapted code and tests.
 - Use `cancellation_token` internally for C#-style cooperative cancellation. Keep

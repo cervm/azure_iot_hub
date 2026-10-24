@@ -15,3 +15,6 @@
   recovery; add controlled TLS regressions and an opt-in Azure smoke test.
 - Cache shared-key SAS tokens and refresh eligible tokens on reconnect, following
   C# without scheduled disconnects; add adapted authentication and TLS regressions.
+- Add internal twin retrieval, connection-time response subscription, correlated
+  service responses, throttling retries and bounded response waits. Reject failed
+  subscriptions as agreed; add adapted C# cases and an opt-in live twin test.

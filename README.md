@@ -29,12 +29,19 @@ bounded pending work. Shared-key SAS tokens are cached and refreshed on reconnec
 when eligible, following C#; renewal does not schedule disconnects. See the
 [transport notes](docs/telemetry-transport.md).
 
+Internal twin retrieval now subscribes to responses during open and completes a
+GET after PUBACK and the matching service response. Controlled tests cover
+throttling, service errors, cancellation, reconnect and response ordering. See the
+[twin retrieval notes](docs/twin-retrieval.md).
+
 The prototype uses the SDK's internal operation lifecycle for linked cancellation,
 finite deadlines and delivery uncertainty. `cancellation_token` remains an internal
 dependency; its types are not exported by this package.
 
-External token replacement, secure WebSockets, twins and the public API remain
+External token replacement, secure WebSockets, reported-property updates,
+desired-property notifications/reconciliation and the public API remain
 unimplemented.
+
 The live Azure telemetry smoke test has passed in a user-run test. Linux ARM64
 and long-running reliability validation remain outstanding.
 
@@ -50,3 +57,13 @@ AZURE_IOT_RUN_INTEGRATION=1 fvm dart test test/integration/telemetry_test.dart
 This sends one telemetry event and waits for IoT Hub's PUBACK. It does not verify
 downstream routing or consumption. Normal test runs skip it; never put credentials
 in source files, command arguments or test logs.
+
+To validate twin retrieval separately with the same environment configuration:
+
+```sh
+AZURE_IOT_RUN_INTEGRATION=1 fvm dart test test/integration/twin_test.dart
+```
+
+This reads desired/reported properties without changing them. Run live tests
+sequentially when sharing a device identity; simultaneous clients can disconnect
+each other. Live twin retrieval and the longer SAS expiry test remain unverified.

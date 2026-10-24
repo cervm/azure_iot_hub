@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 // A minimal loopback MQTT peer: tests explicitly send CONNACK and PUBACK.
@@ -109,8 +110,47 @@ final class MqttPeer {
     return packet;
   }
 
-  Future<void> connack({int code = 0}) async {
+  Future<void> connack({int code = 0, bool twinResponses = false}) async {
     socket.add([0x20, 2, 0, code]);
+    await socket.flush();
+    if (twinResponses && code == 0) await acceptTwinSubscription();
+  }
+
+  Future<void> acceptTwinSubscription() async {
+    final packet = await nextPacket(8);
+    final length = (packet.body[2] << 8) | packet.body[3];
+    if (utf8.decode(packet.body.sublist(4, 4 + length)) !=
+            r'$iothub/twin/res/#' ||
+        packet.body.last != 1) {
+      throw StateError('Expected a QoS 1 twin response subscription.');
+    }
+    await suback((packet.body[0] << 8) | packet.body[1]);
+  }
+
+  Future<void> suback(int id, {int qos = 1}) async {
+    socket.add([0x90, 3, id >> 8, id & 255, qos]);
+    await socket.flush();
+  }
+
+  Future<void> publish(String topic, List<int> payload, {int id = 1}) async {
+    final name = utf8.encode(topic);
+    final body = [
+      name.length >> 8,
+      name.length & 255,
+      ...name,
+      id >> 8,
+      id & 255,
+      ...payload,
+    ];
+    final length = <int>[];
+    var remaining = body.length;
+    do {
+      var digit = remaining % 128;
+      remaining ~/= 128;
+      if (remaining > 0) digit |= 128;
+      length.add(digit);
+    } while (remaining > 0);
+    socket.add([0x32, ...length, ...body]);
     await socket.flush();
   }
 
@@ -129,6 +169,8 @@ final class MqttPeer {
 
 final class Packet(final int header, final List<int> body) {
   int get type => header >> 4;
+  String get topic =>
+      utf8.decode(body.sublist(2, 2 + ((body[0] << 8) | body[1])));
   int get packetId {
     final topicLength = (body[0] << 8) | body[1];
     final offset = 2 + topicLength;
