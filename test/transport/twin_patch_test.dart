@@ -4,11 +4,13 @@
 // Additional cases cover patch snapshots, response ordering and bounded work.
 import 'dart:convert';
 
+import 'package:azure_iot_hub/azure_iot_hub.dart';
+import 'package:azure_iot_hub/src/cancellation.dart'
+    show unwrapCancellationToken;
 import 'package:azure_iot_hub/src/device_client.dart';
 import 'package:azure_iot_hub/src/pending_operation.dart';
 import 'package:azure_iot_hub/src/telemetry_message.dart';
 import 'package:azure_iot_hub/src/transport/mqtt_transport_type.dart';
-import 'package:cancellation_token/cancellation_token.dart';
 import 'package:test/test.dart';
 
 import '../prototype/support/manual_time.dart';
@@ -81,7 +83,7 @@ void transportTests(MqttTransportType transport) {
       await expectLater(
         client.updateReportedProperties({
           'invalid': Object(),
-        }, cancellationToken: CancellationToken()..cancel()),
+        }, cancellationToken: (CancellationTokenSource()..cancel()).token),
         throwsA(
           failure(OperationFailureReason.cancelled, DeliveryState.notSubmitted),
         ),
@@ -290,7 +292,7 @@ void transportTests(MqttTransportType transport) {
     final updating = expectLater(
       client.updateReportedProperties({
         'value': 1,
-      }, cancellationToken: CancellationToken()),
+      }, cancellationToken: CancellationTokenSource().token),
       throwsA(failure(OperationFailureReason.timeout, DeliveryState.unknown)),
     );
     final peer = await accept();
@@ -336,11 +338,11 @@ void transportTests(MqttTransportType transport) {
     test(
       'cancellation ${acknowledge ? 'after' : 'before'} PUBACK preserves reservation rules',
       () async {
-        final token = CancellationToken();
+        final source = CancellationTokenSource();
         final updating = expectLater(
           client.updateReportedProperties({
             'value': 1,
-          }, cancellationToken: token),
+          }, cancellationToken: source.token),
           throwsA(
             failure(OperationFailureReason.cancelled, DeliveryState.unknown),
           ),
@@ -351,10 +353,10 @@ void transportTests(MqttTransportType transport) {
           await peer.puback(request.packetId);
           await until(() => time.activeTimers == 3);
         }
-        token.cancel();
+        source.cancel();
         await updating;
         expect(client.pendingCount, acknowledge ? 0 : 1);
-        expect(token.hasCancellables, isFalse);
+        expect(unwrapCancellationToken(source.token)!.hasCancellables, isFalse);
         await respondPatch(peer, request);
         if (!acknowledge) await peer.puback(request.packetId);
         await until(() => client.pendingCount == 0);

@@ -5,13 +5,17 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:azure_iot_hub/azure_iot_hub.dart';
 import 'package:azure_iot_hub/src/authentication/iot_hub_connection_string.dart';
+import 'package:azure_iot_hub/src/cancellation.dart'
+    show unwrapCancellationToken;
 import 'package:azure_iot_hub/src/device_client.dart';
 import 'package:azure_iot_hub/src/pending_operation.dart';
 import 'package:azure_iot_hub/src/telemetry_message.dart';
 import 'package:azure_iot_hub/src/transport/connection_diagnostics.dart';
 import 'package:azure_iot_hub/src/transport/mqtt_transport_type.dart';
-import 'package:cancellation_token/cancellation_token.dart';
+import 'package:cancellation_token/cancellation_token.dart'
+    show CancelledException;
 import 'package:test/test.dart';
 
 import '../prototype/support/manual_time.dart';
@@ -89,7 +93,9 @@ void transportTests(MqttTransportType transport) {
 
   test('pre-cancellation does not invoke the provider', () async {
     await expectLater(
-      client.open(cancellationToken: CancellationToken()..cancel()),
+      client.open(
+        cancellationToken: (CancellationTokenSource()..cancel()).token,
+      ),
       throwsA(
         failure(OperationFailureReason.cancelled, DeliveryState.notSubmitted),
       ),
@@ -103,9 +109,9 @@ void transportTests(MqttTransportType transport) {
     () async {
       final acquisition = Completer<String>();
       provider = (_, _) => acquisition.future;
-      final cancellation = CancellationToken();
+      final cancellation = CancellationTokenSource();
       final cancelled = expectLater(
-        client.open(cancellationToken: cancellation),
+        client.open(cancellationToken: cancellation.token),
         throwsA(
           failure(OperationFailureReason.cancelled, DeliveryState.notSubmitted),
         ),
@@ -114,7 +120,10 @@ void transportTests(MqttTransportType transport) {
       await until(() => calls == 1);
       cancellation.cancel();
       await cancelled;
-      expect(cancellation.hasCancellables, isFalse);
+      expect(
+        unwrapCancellationToken(cancellation.token)!.hasCancellables,
+        isFalse,
+      );
       expect(client.pendingCount, 1);
       expect(server.peers, isEmpty);
       acquisition.complete(token());
@@ -135,7 +144,7 @@ void transportTests(MqttTransportType transport) {
       provider = (_, _) =>
           calls == 1 ? acquisition.future : Future.value(token());
       final expired = expectLater(
-        client.open(cancellationToken: CancellationToken()),
+        client.open(cancellationToken: CancellationTokenSource().token),
         throwsA(
           failure(OperationFailureReason.timeout, DeliveryState.notSubmitted),
         ),

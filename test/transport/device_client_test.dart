@@ -7,12 +7,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:azure_iot_hub/azure_iot_hub.dart';
 import 'package:azure_iot_hub/src/authentication/iot_hub_connection_string.dart';
+import 'package:azure_iot_hub/src/cancellation.dart'
+    show unwrapCancellationToken;
 import 'package:azure_iot_hub/src/device_client.dart';
 import 'package:azure_iot_hub/src/pending_operation.dart';
 import 'package:azure_iot_hub/src/telemetry_message.dart';
 import 'package:azure_iot_hub/src/transport/mqtt_transport_type.dart';
-import 'package:cancellation_token/cancellation_token.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:test/test.dart';
 
@@ -139,9 +141,9 @@ void transportTests(MqttTransportType transport) {
   });
 
   test('MqttTransportHandlerOpenAsyncTokenCancellationRequested', () async {
-    final token = CancellationToken()..cancel();
+    final source = CancellationTokenSource()..cancel();
     await expectLater(
-      client.open(cancellationToken: token),
+      client.open(cancellationToken: source.token),
       throwsA(
         failure(OperationFailureReason.cancelled, DeliveryState.notSubmitted),
       ),
@@ -152,9 +154,12 @@ void transportTests(MqttTransportType transport) {
   test(
     'MqttTransportHandlerSendEventAsyncTokenCancellationRequested',
     () async {
-      final token = CancellationToken()..cancel();
+      final source = CancellationTokenSource()..cancel();
       await expectLater(
-        client.sendEvent(TelemetryMessage([1]), cancellationToken: token),
+        client.sendEvent(
+          TelemetryMessage([1]),
+          cancellationToken: source.token,
+        ),
         throwsA(
           failure(OperationFailureReason.cancelled, DeliveryState.notSubmitted),
         ),
@@ -163,21 +168,117 @@ void transportTests(MqttTransportType transport) {
     },
   );
 
+  test(
+    'one source cancels shared sends without cancelling an independent send',
+    () async {
+      final peer = await establish();
+      final source = CancellationTokenSource();
+      final independent = CancellationTokenSource();
+      final cancelled = [
+        for (var i = 0; i < 2; i++)
+          expectLater(
+            client.sendEvent(
+              TelemetryMessage([i]),
+              cancellationToken: source.token,
+            ),
+            throwsA(
+              failure(OperationFailureReason.cancelled, DeliveryState.unknown),
+            ),
+          ),
+      ];
+      final sending = client.sendEvent(
+        TelemetryMessage([2]),
+        cancellationToken: independent.token,
+      );
+      final packets = [for (var i = 0; i < 3; i++) await peer.nextPacket(3)];
+      source.cancel();
+      source.cancel();
+      await Future.wait(cancelled);
+      expect(source.token.isCancellationRequested, isTrue);
+      expect(independent.token.isCancellationRequested, isFalse);
+      expect(
+        client.pendingCount,
+        3,
+      ); // Submitted sends retain their reservations.
+      for (final packet in packets) {
+        await peer.puback(packet.packetId);
+      }
+      await sending;
+      await until(() => client.pendingCount == 0);
+      expect(unwrapCancellationToken(source.token)!.hasCancellables, isFalse);
+      expect(
+        unwrapCancellationToken(independent.token)!.hasCancellables,
+        isFalse,
+      );
+      expect(client.isConnected, isTrue);
+    },
+  );
+
+  test(
+    'successful sends detach and leave the token usable for another operation',
+    () async {
+      final peer = await establish();
+      final source = CancellationTokenSource();
+      for (var i = 0; i < 2; i++) {
+        final sending = client.sendEvent(
+          TelemetryMessage([i]),
+          cancellationToken: source.token,
+        );
+        final packet = await peer.nextPacket(3);
+        await peer.puback(packet.packetId);
+        await sending;
+        expect(source.token.isCancellationRequested, isFalse);
+        expect(unwrapCancellationToken(source.token)!.hasCancellables, isFalse);
+      }
+      source.cancel(); // Completed operations are no longer listening.
+      expect(client.pendingCount, 0);
+      expect(client.isConnected, isTrue);
+    },
+  );
+
+  for (final reason in [
+    OperationFailureReason.timeout,
+    OperationFailureReason.closed,
+  ]) {
+    test('$reason detaches without cancelling the caller token', () async {
+      final peer = await establish();
+      final source = CancellationTokenSource();
+      final sending = expectLater(
+        client.sendEvent(
+          TelemetryMessage([1]),
+          cancellationToken: source.token,
+        ),
+        throwsA(failure(reason, DeliveryState.unknown)),
+      );
+      await peer.nextPacket(3);
+      if (reason == OperationFailureReason.timeout) {
+        time.elapse(const Duration(seconds: 10));
+      } else {
+        await client.close();
+      }
+      await sending;
+      expect(source.token.isCancellationRequested, isFalse);
+      expect(unwrapCancellationToken(source.token)!.hasCancellables, isFalse);
+      source.cancel();
+      expect(client.pendingCount, 0);
+    });
+  }
+
   test('cancelled submitted send retains capacity until PUBACK', () async {
     final peer = await establish();
-    final token = CancellationToken();
+    final source = CancellationTokenSource();
     final sending = expectLater(
-      client.sendEvent(TelemetryMessage([1]), cancellationToken: token),
+      client.sendEvent(TelemetryMessage([1]), cancellationToken: source.token),
       throwsA(failure(OperationFailureReason.cancelled, DeliveryState.unknown)),
     );
     final packet = await peer.nextPacket(3);
-    token.cancel();
+    source.cancel();
     await sending;
     expect(client.pendingCount, 1);
     expect(client.pendingBytes, greaterThan(0));
     await peer.puback(packet.packetId);
     await until(() => client.pendingCount == 0);
-    expect(token.hasCancellables, isFalse);
+    expect(unwrapCancellationToken(source.token)!.hasCancellables, isFalse);
     expect(client.isConnected, isTrue);
   });
 
@@ -185,15 +286,18 @@ void transportTests(MqttTransportType transport) {
     'cancelled packet without ACK retires its socket at original deadline',
     () async {
       final peer = await establish();
-      final token = CancellationToken();
+      final source = CancellationTokenSource();
       final sending = expectLater(
-        client.sendEvent(TelemetryMessage([1]), cancellationToken: token),
+        client.sendEvent(
+          TelemetryMessage([1]),
+          cancellationToken: source.token,
+        ),
         throwsA(
           failure(OperationFailureReason.cancelled, DeliveryState.unknown),
         ),
       );
       await peer.nextPacket(3);
-      token.cancel();
+      source.cancel();
       await sending;
       time.elapse(const Duration(seconds: 10));
       await peer.disconnected;
@@ -207,7 +311,7 @@ void transportTests(MqttTransportType transport) {
     final sending = expectLater(
       client.sendEvent(
         TelemetryMessage([1]),
-        cancellationToken: CancellationToken(),
+        cancellationToken: CancellationTokenSource().token,
       ),
       throwsA(failure(OperationFailureReason.timeout, DeliveryState.unknown)),
     );
@@ -313,7 +417,7 @@ void transportTests(MqttTransportType transport) {
       final sending = expectLater(
         client.sendEvent(
           TelemetryMessage([1]),
-          cancellationToken: CancellationToken(),
+          cancellationToken: CancellationTokenSource().token,
         ),
         throwsA(failure(OperationFailureReason.timeout, DeliveryState.unknown)),
       );
@@ -340,9 +444,12 @@ void transportTests(MqttTransportType transport) {
   test(
     'one cancelled offline send does not stop another send or recovery',
     () async {
-      final token = CancellationToken();
+      final source = CancellationTokenSource();
       final cancelled = expectLater(
-        client.sendEvent(TelemetryMessage([1]), cancellationToken: token),
+        client.sendEvent(
+          TelemetryMessage([1]),
+          cancellationToken: source.token,
+        ),
         throwsA(
           failure(OperationFailureReason.cancelled, DeliveryState.notSubmitted),
         ),
@@ -350,7 +457,7 @@ void transportTests(MqttTransportType transport) {
       final sending = client.sendEvent(TelemetryMessage([2]));
       final peer = await server.nextConnection();
       await peer.nextPacket(1);
-      token.cancel();
+      source.cancel();
       await cancelled;
       await peer.connack(twinResponses: true);
       final packet = await peer.nextPacket(3);

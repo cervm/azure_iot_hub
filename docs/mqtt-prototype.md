@@ -67,8 +67,9 @@ the test-only prototype intentionally retains the original dependency transport.
 ## Recommendation and scope
 
 Use `cancellation_token` internally: cooperative registration and merged tokens
-support the tested lifetime model. Keep its types out of the public SDK API and
-review caller-facing cancellation once the client works end to end.
+support the tested lifetime model. The SDK now exposes its own
+[source/token wrappers](upstream.md#sdk-owned-cancellation), keeping dependency
+types internal.
 Use the focused fork pinned above;
 an upstream PR is deferred. Rerun these regressions when changing the dependency.
 

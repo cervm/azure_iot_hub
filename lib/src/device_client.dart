@@ -7,12 +7,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:cancellation_token/cancellation_token.dart';
+import 'package:cancellation_token/cancellation_token.dart' as cancellation;
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:typed_data/typed_buffers.dart';
 
 import 'authentication/iot_hub_connection_string.dart';
 import 'authentication/sas_token_cache.dart';
+import 'cancellation.dart';
 import 'pending_operation.dart';
 import 'telemetry_message.dart';
 import 'transport/connection_diagnostics.dart';
@@ -64,7 +65,7 @@ final class DeviceClient {
   final DateTime Function() now;
   final int Function(int) _randomInt;
   final SasTokenCache _sasTokens;
-  final _shutdown = CancellationToken();
+  final _shutdown = cancellation.CancellationToken();
   final _pending = <_Operation>{};
   final _packets = <int, _Operation>{};
   final _twinRequests = <String, _Operation>{};
@@ -139,7 +140,7 @@ final class DeviceClient {
   }) {
     final reason = _closed
         ? OperationFailureReason.closed
-        : (token?.isCancelled ?? false)
+        : (token?.isCancellationRequested ?? false)
         ? OperationFailureReason.cancelled
         : null;
     if (reason != null) {
@@ -207,7 +208,7 @@ final class DeviceClient {
     _pendingBytes += size;
     if (!operation.completion.start(
       shutdown: _shutdown,
-      cancellationToken: token,
+      cancellationToken: unwrapCancellationToken(token),
     )) {
       return operation.completion.future;
     }
@@ -372,7 +373,8 @@ final class DeviceClient {
           _stopRecovery(OperationFailureReason.tls);
         } else if (error is TimeoutException) {
           connectionDiagnostics.recordFailure(OperationFailureReason.timeout);
-        } else if (error is IOException || error is CancelledException) {
+        } else if (error is IOException ||
+            error is cancellation.CancelledException) {
           connectionDiagnostics.recordFailure(TransportFailureKind.network);
         } else {
           connectionDiagnostics.recordFailure(

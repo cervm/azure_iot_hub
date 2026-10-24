@@ -34,3 +34,6 @@
 - Add internal asynchronous SAS providers with C# cache/refresh semantics and
   serialized acquisition. Include acquisition in existing deadlines; cover provider
   failures, cancellation, shutdown and reconnect across TLS and WSS.
+- Export SDK-owned cancellation source/token wrappers and connect them to all
+  client operations. Keep dependency types internal; verify shared cancellation,
+  finite deadlines and listener cleanup over TLS and WSS.

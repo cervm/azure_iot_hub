@@ -14,9 +14,9 @@
   This is an agreed deviation from C# ignoring the SUBACK failure code.
 - Use the pinned reference and source/test mapping in [docs/upstream.md](docs/upstream.md).
   Preserve copyright and licence notices for adapted code and tests.
-- Use `cancellation_token` internally for C#-style cooperative cancellation. Keep
-  its types out of the public SDK API; review caller-facing cancellation once the
-  client works end to end. Avoid a speculative cancellation framework.
+- Use `cancellation_token` internally for C#-style cooperative cancellation. Expose
+  SDK-owned `CancellationTokenSource` and read-only `CancellationToken` wrappers;
+  keep dependency types private. Avoid a speculative cancellation framework.
 - Follow C# retry/reconnect behaviour: a transient disconnect does not immediately
   fail a send; cancelling one operation does not stop client recovery.
 - Follow C# desired-property behaviour: deliver patches and restore subscriptions.

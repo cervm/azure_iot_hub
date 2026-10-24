@@ -42,10 +42,10 @@ remain unimplemented.
   operation, including connection waits and retries; reconnect must not restart it.
   A caller token may cancel earlier. Do not support disabling the timeout with
   zero. Test timeout/cancellation/acknowledgement races and distinguish their outcomes.
-- Use `cancellation_token` internally for cooperative cancellation. Keep package
-  types out of the public SDK API; review how callers request cancellation once
-  the client works end to end. A future wrapper cannot itself stop MQTT work;
-  the SDK still owns cleanup, deadlines and late-completion handling.
+- **Agreed cancellation API:** expose SDK-owned `CancellationTokenSource` and
+  read-only `CancellationToken` wrappers, following C#'s source/token split.
+  Keep `cancellation_token` private; the SDK owns cleanup, deadlines and
+  late-completion handling.
 - **Agreed desired-property boundary:** follow C# by delivering patches and
   restoring subscriptions. The device application retrieves snapshots and
   reconciles versions, following the [IoT Hub reconnection flow](https://learn.microsoft.com/en-us/azure/iot-hub/iot-hub-devguide-device-twins#device-reconnection-flow).
@@ -86,7 +86,29 @@ cancellation while an in-flight packet still needs cleanup. The owner releases
 that deadline on acknowledgement or connection retirement. The
 [operation tests](../test/pending_operation_test.dart) additionally verify shared
 tokens, shutdown isolation, listener cleanup, pre-cancellation and terminal races
-with deterministic timers. No cancellation types have been exported.
+with deterministic timers. Dependency cancellation types remain internal.
+
+## SDK-owned cancellation
+
+[CancellationTokenSource](../lib/src/cancellation.dart) owns cancellation;
+its `token` is read-only and exposes `isCancellationRequested`. This follows
+[.NET's cancellation model](https://learn.microsoft.com/en-us/dotnet/standard/threading/cancellation-in-managed-threads).
+Only these SDK types are exported; an internal bridge connects them to the existing
+operation lifecycle without exposing dependency types or exceptions.
+
+Cancellation is optional, permanent and idempotent. One token may serve multiple
+operations; cancelling it does not stop shared client recovery. Completion,
+timeout and client close detach their listeners without cancelling the caller's
+token. Submitted work retains delivery uncertainty and its cleanup deadline.
+The initial wrapper owns no timers or native handles and requires no disposal;
+timed cancellation, linking and callback registration are outside this small API.
+
+[Public API tests](../test/cancellation_test.dart) cover token identity and state.
+The existing C# cancellation cases and Dart lifecycle tests now use these wrappers
+across telemetry, twin and provider operations over TLS and WSS. Additional
+[transport cases](../test/transport/device_client_test.dart) cover shared-source
+cancellation, independent operations, reuse after success and listener cleanup
+after completion, timeout and close.
 
 ## Internal authentication coverage
 
@@ -180,7 +202,7 @@ versus empty property values, and keeps system properties on name collisions.
 The trailing property-bag slash and C# MQTT limits (262,143-byte payload,
 65,535-byte topic) are retained. Service quotas also account for message properties.
 
-Caller cancellation types remain internal. Authentication, TLS and protocol
+Caller cancellation uses the SDK-owned wrappers. Authentication, TLS and protocol
 failures are redacted and non-retryable for the current work; network failures and
 CONNACK server-unavailable are retryable. Native task/socket cleanup, connection
 bounds and queue limits adapt C#'s threading mechanics to Dart; see the

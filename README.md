@@ -25,10 +25,11 @@ client against a controlled loopback peer. It is test-only and needs no Azure cr
 An internal client now connects using device SAS credentials over MQTT/TLS or
 secure WebSockets and sends QoS 1 telemetry, completing on PUBACK. Tests over both
 transports cover retries, cancellation, deadlines, certificate validation,
-stalled-handshake cleanup and bounded pending work. Shared-key and async-provider SAS tokens are
-cached and refreshed on reconnect when eligible, following C#; renewal does not
-schedule disconnects. Provider acquisition shares existing deadlines and does not
-delay caller cancellation or close. See the [authentication notes](docs/upstream.md#internal-authentication-coverage) and
+stalled-handshake cleanup and bounded pending work. Shared-key and async-provider
+SAS tokens are cached and refreshed on reconnect when eligible, following C#.
+Renewal does not schedule disconnects. Provider acquisition shares existing deadlines and does not
+delay caller cancellation or close. See the
+[authentication notes](docs/upstream.md#internal-authentication-coverage) and
 [transport notes](docs/telemetry-transport.md).
 
 Internal twin retrieval and reported-property updates subscribe to responses
@@ -38,11 +39,15 @@ and JSON patch semantics. Desired-property callbacks deliver patches and restore
 their subscription after reconnect. The application owns snapshot retrieval and
 version reconciliation. See the [twin notes](docs/twins.md).
 
-The prototype uses the SDK's internal operation lifecycle for linked cancellation,
-finite deadlines and delivery uncertainty. `cancellation_token` remains an internal
-dependency; its types are not exported by this package.
+The package exports SDK-owned `CancellationTokenSource` and `CancellationToken`.
+Pass `source.token` to client operations and call `source.cancel()` to request
+cancellation. The token exposes `isCancellationRequested`; cancellation remains
+optional and does not disable operation deadlines. The `cancellation_token`
+dependency and its types remain internal. See the
+[cancellation contract](docs/upstream.md#sdk-owned-cancellation).
 
-External token replacement and the public API remain unimplemented.
+The device client and its message, twin and error models remain internal pending
+public API review.
 
 The live Azure telemetry smoke test has passed in a user-run test. Linux ARM64
 and long-running reliability validation remain outstanding.

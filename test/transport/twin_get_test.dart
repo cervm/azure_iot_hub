@@ -4,11 +4,13 @@
 // Other cases cover Dart lifecycle races and agreed bounds/deviations.
 import 'dart:convert';
 
+import 'package:azure_iot_hub/azure_iot_hub.dart';
+import 'package:azure_iot_hub/src/cancellation.dart'
+    show unwrapCancellationToken;
 import 'package:azure_iot_hub/src/device_client.dart';
 import 'package:azure_iot_hub/src/pending_operation.dart';
 import 'package:azure_iot_hub/src/telemetry_message.dart';
 import 'package:azure_iot_hub/src/transport/mqtt_transport_type.dart';
-import 'package:cancellation_token/cancellation_token.dart';
 import 'package:test/test.dart';
 
 import '../prototype/support/manual_time.dart';
@@ -75,7 +77,9 @@ void transportTests(MqttTransportType transport) {
     'MqttTransportHandlerSendTwinGetAsyncTokenCancellationRequested',
     () async {
       await expectLater(
-        client.getTwin(cancellationToken: CancellationToken()..cancel()),
+        client.getTwin(
+          cancellationToken: (CancellationTokenSource()..cancel()).token,
+        ),
         throwsA(
           failure(OperationFailureReason.cancelled, DeliveryState.notSubmitted),
         ),
@@ -295,9 +299,9 @@ void transportTests(MqttTransportType transport) {
   test(
     'cancellation after PUBACK releases the request and ignores late responses',
     () async {
-      final token = CancellationToken();
+      final source = CancellationTokenSource();
       final getting = expectLater(
-        client.getTwin(cancellationToken: token),
+        client.getTwin(cancellationToken: source.token),
         throwsA(
           failure(OperationFailureReason.cancelled, DeliveryState.unknown),
         ),
@@ -306,10 +310,10 @@ void transportTests(MqttTransportType transport) {
       final request = await peer.nextPacket(3);
       await peer.puback(request.packetId);
       await until(() => time.activeTimers == 3);
-      token.cancel();
+      source.cancel();
       await getting;
       expect(client.pendingCount, 0);
-      expect(token.hasCancellables, isFalse);
+      expect(unwrapCancellationToken(source.token)!.hasCancellables, isFalse);
       await respond(peer, requestId(request));
       final sending = client.sendEvent(TelemetryMessage([1]));
       final publish = await peer.nextPacket(3);
@@ -322,16 +326,16 @@ void transportTests(MqttTransportType transport) {
   test(
     'cancellation before PUBACK retains only the MQTT reservation',
     () async {
-      final token = CancellationToken();
+      final source = CancellationTokenSource();
       final getting = expectLater(
-        client.getTwin(cancellationToken: token),
+        client.getTwin(cancellationToken: source.token),
         throwsA(
           failure(OperationFailureReason.cancelled, DeliveryState.unknown),
         ),
       );
       final peer = await accept();
       final request = await peer.nextPacket(3);
-      token.cancel();
+      source.cancel();
       await getting;
       expect(client.pendingCount, 1);
       await respond(peer, requestId(request));
@@ -472,7 +476,7 @@ void transportTests(MqttTransportType transport) {
     'reconnect does not restart a twin GET deadline with a caller token',
     () async {
       final getting = expectLater(
-        client.getTwin(cancellationToken: CancellationToken()),
+        client.getTwin(cancellationToken: CancellationTokenSource().token),
         throwsA(failure(OperationFailureReason.timeout, DeliveryState.unknown)),
       );
       final first = await accept();
@@ -491,15 +495,15 @@ void transportTests(MqttTransportType transport) {
 
   test('cancelling one twin GET leaves another request and its subscription active', () async {
     final peer = await establish();
-    final token = CancellationToken();
+    final source = CancellationTokenSource();
     final cancelled = expectLater(
-      client.getTwin(cancellationToken: token),
+      client.getTwin(cancellationToken: source.token),
       throwsA(failure(OperationFailureReason.cancelled, DeliveryState.unknown)),
     );
     final getting = client.getTwin();
     final a = await peer.nextPacket(3);
     final b = await peer.nextPacket(3);
-    token.cancel();
+    source.cancel();
     await cancelled;
     await peer.puback(b.packetId);
     await respond(peer, requestId(b));

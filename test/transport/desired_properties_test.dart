@@ -5,12 +5,14 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:azure_iot_hub/azure_iot_hub.dart';
+import 'package:azure_iot_hub/src/cancellation.dart'
+    show unwrapCancellationToken;
 import 'package:azure_iot_hub/src/device_client.dart';
 import 'package:azure_iot_hub/src/pending_operation.dart';
 import 'package:azure_iot_hub/src/telemetry_message.dart';
 import 'package:azure_iot_hub/src/transport/mqtt_transport_type.dart';
 import 'package:azure_iot_hub/src/twin.dart';
-import 'package:cancellation_token/cancellation_token.dart';
 import 'package:test/test.dart';
 
 import '../prototype/support/manual_time.dart';
@@ -105,7 +107,7 @@ void transportTests(MqttTransportType transport) {
       await expectLater(
         client.setDesiredPropertyUpdateCallback(
           (_) {},
-          cancellationToken: CancellationToken()..cancel(),
+          cancellationToken: (CancellationTokenSource()..cancel()).token,
         ),
         throwsA(
           failure(OperationFailureReason.cancelled, DeliveryState.notSubmitted),
@@ -288,11 +290,11 @@ void transportTests(MqttTransportType transport) {
         var calls = 0;
         MqttPeer? peer;
         if (removing) peer = await register((_) => calls++);
-        final token = CancellationToken();
+        final source = CancellationTokenSource();
         final cancelled = expectLater(
           client.setDesiredPropertyUpdateCallback(
             removing ? null : (_) => calls++,
-            cancellationToken: token,
+            cancellationToken: source.token,
           ),
           throwsA(
             failure(OperationFailureReason.cancelled, DeliveryState.unknown),
@@ -300,10 +302,10 @@ void transportTests(MqttTransportType transport) {
         );
         peer ??= await accept();
         final id = await desiredControl(peer, subscribe: !removing);
-        token.cancel();
+        source.cancel();
         await cancelled;
         expect(client.pendingCount, 1);
-        expect(token.hasCancellables, isFalse);
+        expect(unwrapCancellationToken(source.token)!.hasCancellables, isFalse);
         if (removing) {
           await peer.unsuback(id);
           await peer.suback(await desiredControl(peer));
@@ -322,16 +324,19 @@ void transportTests(MqttTransportType transport) {
   test('queued cancellation does not affect the active registration', () async {
     var calls = 0;
     final registering = client.setDesiredPropertyUpdateCallback((_) => calls++);
-    final token = CancellationToken();
+    final source = CancellationTokenSource();
     final cancelled = expectLater(
-      client.setDesiredPropertyUpdateCallback(null, cancellationToken: token),
+      client.setDesiredPropertyUpdateCallback(
+        null,
+        cancellationToken: source.token,
+      ),
       throwsA(
         failure(OperationFailureReason.cancelled, DeliveryState.notSubmitted),
       ),
     );
     final peer = await accept();
     final id = await desiredControl(peer);
-    token.cancel();
+    source.cancel();
     await cancelled;
     expect(client.pendingCount, 1);
     await peer.suback(id);
@@ -344,11 +349,11 @@ void transportTests(MqttTransportType transport) {
     test(
       'cancelled registration cleanup is bounded ${acknowledged ? 'after' : 'before'} SUBACK',
       () async {
-        final token = CancellationToken();
+        final source = CancellationTokenSource();
         final cancelled = expectLater(
           client.setDesiredPropertyUpdateCallback(
             (_) {},
-            cancellationToken: token,
+            cancellationToken: source.token,
           ),
           throwsA(
             failure(OperationFailureReason.cancelled, DeliveryState.unknown),
@@ -356,7 +361,7 @@ void transportTests(MqttTransportType transport) {
         );
         final peer = await accept();
         final id = await desiredControl(peer);
-        token.cancel();
+        source.cancel();
         await cancelled;
         if (acknowledged) {
           await peer.suback(id);
@@ -395,7 +400,7 @@ void transportTests(MqttTransportType transport) {
     final registering = expectLater(
       client.setDesiredPropertyUpdateCallback(
         (_) {},
-        cancellationToken: CancellationToken(),
+        cancellationToken: CancellationTokenSource().token,
       ),
       throwsA(failure(OperationFailureReason.timeout, DeliveryState.unknown)),
     );

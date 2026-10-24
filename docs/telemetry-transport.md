@@ -74,9 +74,10 @@ Reaching the renewal window or token expiry does not schedule a disconnect.
 If IoT Hub closes the session, ordinary recovery requests credentials again.
 No service-side grace period is assumed; see the C# [source mapping](upstream.md).
 
-External SAS bytes are passed unchanged, including after the parser's existing
-clock-skew check; the service determines validity. External token replacement
-and provider callbacks remain unimplemented.
+Fixed SAS bytes are passed unchanged, including after the parser's existing
+clock-skew check; the service determines validity. Async providers can acquire
+replacement tokens on reconnect, using the returned expiry for caching. Acquisition
+shares existing deadlines; see the [authentication contract](upstream.md#internal-authentication-coverage).
 
 ## Validation and limits
 
@@ -122,5 +123,5 @@ On failure, the smoke test prints a bounded diagnostic snapshot:
 attempt count, connection stage, failure category, HTTP status and WebSocket close
 code. It excludes endpoints, device identities, credentials, response bodies,
 WebSocket close reasons and raw exception text.
-External token replacement and public API design remain subsequent work.
+The device client API remains internal; SDK-owned cancellation types are exported.
 The live SAS expiry test is deferred.
