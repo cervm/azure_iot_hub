@@ -25,9 +25,10 @@ client against a controlled loopback peer. It is test-only and needs no Azure cr
 An internal client now connects using device SAS credentials over MQTT/TLS or
 secure WebSockets and sends QoS 1 telemetry, completing on PUBACK. Tests over both
 transports cover retries, cancellation, deadlines, certificate validation,
-stalled-handshake cleanup and bounded pending work. Shared-key SAS tokens are
+stalled-handshake cleanup and bounded pending work. Shared-key and async-provider SAS tokens are
 cached and refreshed on reconnect when eligible, following C#; renewal does not
-schedule disconnects. See the
+schedule disconnects. Provider acquisition shares existing deadlines and does not
+delay caller cancellation or close. See the [authentication notes](docs/upstream.md#internal-authentication-coverage) and
 [transport notes](docs/telemetry-transport.md).
 
 Internal twin retrieval and reported-property updates subscribe to responses

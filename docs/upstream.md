@@ -99,6 +99,8 @@ All C# paths below are relative to `iothub/device/` at the pinned commit.
 | Token signing, expiry and external tokens | `src/Common/Security/SharedAccessSignatureBuilder.cs`, `SharedAccessSignature.cs`, `SharedAccessSignatureConstants.cs`, `StringValidationHelper.cs` in the same directory | [SAS implementation](../lib/src/authentication/shared_access_signature.dart), [tests](../test/authentication/shared_access_signature_test.dart) |
 | Fixed expiry example | `tests/Authentication/HsmAuthentication/SasTokenBuilderTest.cs` | `TestBuildExpiry_ShouldReturnExpireOn` in the SAS tests |
 | Cached token, refresh threshold and device defaults | `src/Authentication/AuthenticationWithTokenRefresh.cs`, `DeviceAuthenticationWithTokenRefresh.cs` in the same directory; matching files in `tests/Authentication/` with `Tests.cs` suffix | [SAS cache](../lib/src/authentication/sas_token_cache.dart), [adapted tests](../test/authentication/sas_token_cache_test.dart) |
+| Asynchronous token acquisition, serialization and changed lifetime | `AuthenticationWithTokenRefresh.SafeCreateNewToken` and `GetTokenAsync`; `AuthenticationWithTokenRefreshTests` initial-property, concurrent-update and new-TTL cases | `IotHubConnectionString.withTokenProvider`, [provider tests](../test/authentication/sas_token_provider_test.dart) |
+| Provider failures and connection recovery | `src/Pipeline/ErrorDelegatingHandler.cs`, `src/Transport/Mqtt/MqttIotHubAdapter.cs` | `DeviceClient._connect`; [provider lifecycle tests](../test/transport/token_provider_test.dart) over TLS and WSS |
 | Credential requests on MQTT CONNECT; fixed SAS passthrough | `src/Authentication/IotHubConnectionString.Core.cs`, `src/Transport/Mqtt/MqttIotHubAdapter.cs` | `DeviceClient._connect`; reconnect and fixed-token cases in the [transport tests](../test/transport/device_client_test.dart) |
 
 The named parser cases retain the upstream scenarios for host, device ID, complex
@@ -114,23 +116,45 @@ expiry. Their parser retains C#'s five-minute clock-skew allowance; that allowan
 must not postpone renewal or imply service-side validity after expiry.
 
 The cache uses C#'s one-hour lifetime and 15% buffer; zero requests either default.
-It calculates the buffer from the whole seconds remaining after signing, with
+It calculates the buffer from the whole seconds remaining after acquisition, with
 C#'s single-precision arithmetic and integer truncation. Credential requests before
-the threshold reuse the token; requests at or after it sign again. SAS timestamps
+the threshold reuse the token; requests at or after it acquire a new token. SAS timestamps
 use wall-clock time, independently of each operation's existing deadline.
 There is no renewal timer and no assumed service-side grace period.
 
-The named cache tests adapt upstream initial-property, cached-token, concurrent
-request and invalid-argument scenarios. Synchronous signing within a Dart isolate
-needs no semaphore: queued callers share one cached result. There is no async
-provider abstraction yet. Additional tests cover threshold equality, fractional
-expiry, buffer rounding and unchanged external tokens after expiry.
+The internal async provider receives the hub hostname and suggested TTL, matching
+C#'s `SafeCreateNewToken`. It may choose a different lifetime; the returned token's
+expiry controls caching. Acquisition is serialized per client, with eligibility
+rechecked after waiting. Waiters retry acquisition after a provider failure rather
+than inheriting that failure. Tokens already eligible for refresh cause the next
+waiter to acquire again. The provider owns any external resources and I/O timeouts;
+there is no shared authentication-object disposal API in this internal callback model.
+
+As in C#, the callback receives no cancellation token. Cancelling one caller leaves
+shared acquisition running. Acquisition consumes the existing connection and
+operation deadlines; close and caller completion never wait for it. An unresolved
+provider remains the only acquisition in flight, even after timeout, preventing
+unbounded abandoned callbacks. Once it settles, an expired attempt cannot connect;
+recovery may reuse a valid cached result on its next attempt. Closing prevents all
+further connection attempts. A provider that never settles therefore blocks that
+client's recovery, while operations still time out and close remains prompt.
+
+Following C#'s error pipeline, provider I/O, timeout and cancellation exceptions
+are transient; TLS errors and other acquisition/validation failures stop recovery.
+Diagnostics retain only the category and authentication stage. Arbitrary provider
+exception text is not propagated through client failures.
+
+Named cache/provider tests adapt upstream initial-property, cached-token,
+concurrent-update, changed-TTL and invalid-argument scenarios. Deterministic Dart
+cases cover slow providers, failed/expired tokens, serialized retries, cancellation,
+close, deadline races and reconnect. Existing cases retain threshold equality,
+fractional expiry, buffer rounding and unchanged fixed SAS tokens after expiry.
 
 Errors use Dart `FormatException` without the input as its source. Diagnostic
 `toString()` methods redact credentials; they do not provide
 C#'s connection-string serialization. These classes are internal and unexported.
-External token replacement, provider callbacks and public error types remain to be
-implemented. Transport authentication is covered below. The protocol reference is Microsoft's
+Provider configuration and public error types remain internal pending API review.
+Transport authentication is covered below. The protocol reference is Microsoft's
 [SAS authentication contract](https://learn.microsoft.com/en-us/azure/iot-hub/authenticate-authorize-sas).
 
 ## Internal MQTT telemetry coverage

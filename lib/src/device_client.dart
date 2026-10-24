@@ -70,6 +70,7 @@ final class DeviceClient {
   final _twinRequests = <String, _Operation>{};
   _Attempt? _attempt;
   Future<void>? _connecting;
+  Timer? _authenticationDeadline;
   Timer? _retry;
   int _retryCount = 0;
   int _pendingBytes = 0;
@@ -244,11 +245,20 @@ final class DeviceClient {
   }
 
   Future<void> _connect() async {
+    if (_closed) return;
     _Attempt? current;
+    var timedOut = false;
+    connectionDiagnostics.attempts++;
+    connectionDiagnostics.stage = ConnectionStage.authentication;
+    final deadline = schedule(connectionTimeout, () {
+      timedOut = true;
+      connectionDiagnostics.recordFailure(OperationFailureReason.timeout);
+      if (current != null) _lost(current);
+    });
+    _authenticationDeadline = deadline;
     try {
-      if (_closed) return;
-      final token = _sasTokens.getToken();
-      connectionDiagnostics.attempts++;
+      final token = await _sasTokens.getToken();
+      if (_closed || timedOut) return;
       final transport = MqttTransport(
         credentials.connectionHostName,
         credentials.deviceId,
@@ -265,10 +275,9 @@ final class DeviceClient {
       current = attempt;
       _attempt = attempt;
       transport.onDisconnected = () => _lost(attempt);
-      attempt.deadline = schedule(connectionTimeout, () {
-        connectionDiagnostics.recordFailure(OperationFailureReason.timeout);
-        _lost(attempt);
-      });
+      // Acquisition and network setup share one connection deadline.
+      attempt.deadline = deadline;
+      _authenticationDeadline = null;
       final status = await transport.connect(
         '${credentials.hostName}/${credentials.deviceId}/?'
         'api-version=2020-09-30&DeviceClientType='
@@ -355,13 +364,31 @@ final class DeviceClient {
     } catch (error) {
       if (current != null && identical(_attempt, current)) {
         _lost(current);
-      } else if (current == null && !_closed) {
-        _stopRecovery(OperationFailureReason.authentication);
+      } else if (current == null && !_closed && !timedOut) {
+        // C# ErrorDelegatingHandler retries network/timeouts, but not TLS or
+        // malformed credentials. Never retain a provider's exception text.
+        if (error is TlsException) {
+          connectionDiagnostics.recordFailure(OperationFailureReason.tls);
+          _stopRecovery(OperationFailureReason.tls);
+        } else if (error is TimeoutException) {
+          connectionDiagnostics.recordFailure(OperationFailureReason.timeout);
+        } else if (error is IOException || error is CancelledException) {
+          connectionDiagnostics.recordFailure(TransportFailureKind.network);
+        } else {
+          connectionDiagnostics.recordFailure(
+            OperationFailureReason.authentication,
+          );
+          _stopRecovery(OperationFailureReason.authentication);
+        }
       }
     } finally {
-      // Serialize native setup too: uncancellable DNS resolution cannot build
-      // an unbounded collection of abandoned connection attempts. Callers and
-      // close() settle independently; late sockets are closed by the adapter.
+      if (current == null) {
+        deadline.cancel();
+        _authenticationDeadline = null;
+      }
+      // Serialize acquisition and native setup: an uncooperative provider or
+      // uncancellable DNS cannot build unbounded abandoned attempts. Callers
+      // and close() settle independently; late results are discarded.
       await current?.transport.settled;
     }
   }
@@ -616,6 +643,8 @@ final class DeviceClient {
     _desiredCallback = null;
     _retry?.cancel();
     _retry = null;
+    _authenticationDeadline?.cancel();
+    _authenticationDeadline = null;
     _shutdown.cancel();
     if (_attempt != null) _lost(_attempt!);
     for (final operation in _pending.toList()) {

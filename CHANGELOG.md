@@ -31,3 +31,6 @@
   bounded buffers, owned TLS/HTTP setup and credential-safe failure diagnostics.
   Reuse telemetry/twin lifecycle tests across both transports; add WSS wire and
   cleanup regressions and an opt-in telemetry/twin test, validated against IoT Hub.
+- Add internal asynchronous SAS providers with C# cache/refresh semantics and
+  serialized acquisition. Include acquisition in existing deadlines; cover provider
+  failures, cancellation, shutdown and reconnect across TLS and WSS.

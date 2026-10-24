@@ -1,6 +1,7 @@
 /// The last observed setup stage, without endpoints or authentication data.
 enum ConnectionStage {
   idle,
+  authentication,
   tcp,
   tls,
   webSocketUpgrade,

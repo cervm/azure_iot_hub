@@ -5,6 +5,16 @@
 // See docs/upstream.md for the source mapping.
 import 'shared_access_signature.dart';
 
+/// Acquires a SAS for [iotHub], using the suggested lifetime when appropriate.
+///
+/// Matches C#'s `SafeCreateNewToken` callback. The returned token's expiry controls
+/// caching. The provider owns its I/O timeouts; caller cancellation does not stop
+/// shared acquisition. This type is internal and is not exported by the SDK.
+typedef SasTokenProvider = Future<String> Function(
+  String iotHub,
+  int suggestedTimeToLiveSeconds,
+);
+
 /// The internal connection-string representation for device SAS authentication.
 final class IotHubConnectionString {
   const IotHubConnectionString._({
@@ -14,6 +24,7 @@ final class IotHubConnectionString {
     this.sharedAccessKey,
     this.sharedAccessKeyName,
     this.sharedAccessSignature,
+    this.tokenProvider,
   });
 
   /// Parses supported device credentials using C# connection-string semantics.
@@ -81,12 +92,33 @@ final class IotHubConnectionString {
     );
   }
 
+  /// Creates device credentials backed by an asynchronous SAS provider.
+  factory IotHubConnectionString.withTokenProvider({
+    required String hostName,
+    required String deviceId,
+    required SasTokenProvider tokenProvider,
+    String? gatewayHostName,
+  }) {
+    _validate(hostName, 'HostName', _hostNamePattern);
+    _validate(deviceId, 'DeviceId', _deviceIdPattern);
+    if (gatewayHostName != null && gatewayHostName.isNotEmpty) {
+      _validate(gatewayHostName, 'GatewayHostName', _hostNamePattern);
+    }
+    return IotHubConnectionString._(
+      hostName: hostName,
+      deviceId: deviceId,
+      gatewayHostName: gatewayHostName,
+      tokenProvider: tokenProvider,
+    );
+  }
+
   final String hostName;
   final String deviceId;
   final String? gatewayHostName;
   final String? sharedAccessKey;
   final String? sharedAccessKeyName;
   final SharedAccessSignature? sharedAccessSignature;
+  final SasTokenProvider? tokenProvider;
 
   /// The network destination, which can differ from the SAS audience.
   String get connectionHostName =>
@@ -100,6 +132,11 @@ final class IotHubConnectionString {
     required DateTime now,
     Duration timeToLive = const Duration(hours: 1),
   }) {
+    if (tokenProvider != null) {
+      throw StateError(
+        'Provider credentials require asynchronous acquisition.',
+      );
+    }
     final supplied = sharedAccessSignature;
     if (supplied != null) {
       return supplied;
