@@ -11,6 +11,7 @@ import 'package:azure_iot_hub/src/authentication/iot_hub_connection_string.dart'
 import 'package:azure_iot_hub/src/device_client.dart';
 import 'package:azure_iot_hub/src/pending_operation.dart';
 import 'package:azure_iot_hub/src/telemetry_message.dart';
+import 'package:azure_iot_hub/src/transport/mqtt_transport_type.dart';
 import 'package:cancellation_token/cancellation_token.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:test/test.dart';
@@ -20,17 +21,29 @@ import '../prototype/support/mqtt_peer.dart';
 import 'support/device_test_support.dart';
 
 void main() {
+  for (final transport in MqttTransportType.values) {
+    group(transport.name, () => transportTests(transport));
+  }
+}
+
+void transportTests(MqttTransportType transport) {
   late MqttPeerServer server;
   late ManualTime time;
   late DeviceClient client;
   late Duration wallClockOffset;
 
   setUp(() async {
-    server = await MqttPeerServer.startTls(serverContext());
+    server = await switch (transport) {
+      MqttTransportType.tcp => MqttPeerServer.startTls(serverContext()),
+      MqttTransportType.webSocket => MqttPeerServer.startWebSocket(
+        serverContext(),
+      ),
+    };
     time = ManualTime();
     wallClockOffset = Duration.zero;
     client = DeviceClient(
       credentials(),
+      transport: transport,
       port: server.port,
       securityContext: clientContext(),
       operationTimeout: const Duration(seconds: 10),
@@ -92,41 +105,38 @@ void main() {
     await opening;
   });
 
-  test(
-    'send implicitly opens TLS and completes only after matching PUBACK',
-    () async {
-      var completed = false;
-      final sending = client
-          .sendEvent(
-            TelemetryMessage(
-              [0, 127, 128, 255],
-              messageId: 'a b',
-              contentType: 'application/json',
-              properties: {'colour': 'blå & green'},
-            ),
-          )
-          .then((_) => completed = true);
-      final peer = await server.nextConnection();
-      await peer.nextPacket(1);
-      await peer.connack(twinResponses: true);
-      final publish = await peer.nextPacket(3);
-      expect(publish.header, 0x32);
-      final length = (publish.body[0] << 8) | publish.body[1];
-      expect(
-        utf8.decode(publish.body.sublist(2, 2 + length)),
-        'devices/device-1/messages/events/%24.mid=a%20b&'
-        '%24.ct=application%2Fjson&colour=bl%C3%A5%20%26%20green/',
-      );
-      expect(publish.body.sublist(4 + length), [0, 127, 128, 255]);
-      expect(completed, isFalse);
-      await peer.puback(publish.packetId + 1);
-      await pumpEventQueue();
-      expect(completed, isFalse);
-      await peer.puback(publish.packetId);
-      await sending;
-      expect(client.pendingCount, 0);
-    },
-  );
+  test('send implicitly opens the transport and completes only after matching PUBACK', () async {
+    var completed = false;
+    final sending = client
+        .sendEvent(
+          TelemetryMessage(
+            [0, 127, 128, 255],
+            messageId: 'a b',
+            contentType: 'application/json',
+            properties: {'colour': 'blå & green'},
+          ),
+        )
+        .then((_) => completed = true);
+    final peer = await server.nextConnection();
+    await peer.nextPacket(1);
+    await peer.connack(twinResponses: true);
+    final publish = await peer.nextPacket(3);
+    expect(publish.header, 0x32);
+    final length = (publish.body[0] << 8) | publish.body[1];
+    expect(
+      utf8.decode(publish.body.sublist(2, 2 + length)),
+      'devices/device-1/messages/events/%24.mid=a%20b&'
+      '%24.ct=application%2Fjson&colour=bl%C3%A5%20%26%20green/',
+    );
+    expect(publish.body.sublist(4 + length), [0, 127, 128, 255]);
+    expect(completed, isFalse);
+    await peer.puback(publish.packetId + 1);
+    await pumpEventQueue();
+    expect(completed, isFalse);
+    await peer.puback(publish.packetId);
+    await sending;
+    expect(client.pendingCount, 0);
+  });
 
   test('MqttTransportHandlerOpenAsyncTokenCancellationRequested', () async {
     final token = CancellationToken()..cancel();
@@ -406,6 +416,7 @@ void main() {
       await client.close();
       client = DeviceClient(
         credentials(),
+        transport: transport,
         port: server.port,
         schedule: time.schedule,
       );
@@ -446,15 +457,13 @@ void main() {
     final peer = await server.nextConnection();
     await peer.nextPacket(1);
     for (final byte in [0x20, 2, 0, 0]) {
-      peer.socket.add([byte]);
-      await peer.socket.flush();
+      await peer.sendBytes([byte]);
       await pumpEventQueue();
     }
     await peer.acceptTwinSubscription();
     final packet = await peer.nextPacket(3);
     for (final byte in [0x40, 2, packet.packetId >> 8, packet.packetId & 255]) {
-      peer.socket.add([byte]);
-      await peer.socket.flush();
+      await peer.sendBytes([byte]);
       await pumpEventQueue();
     }
     await sending;
@@ -476,6 +485,7 @@ void main() {
       });
       client = DeviceClient(
         credentials(),
+        transport: transport,
         port: plain.port,
         securityContext: clientContext(),
         schedule: time.schedule,
@@ -529,6 +539,7 @@ void main() {
       });
       client = DeviceClient(
         credentials(),
+        transport: transport,
         port: plain.port,
         schedule: time.schedule,
       );
@@ -612,8 +623,7 @@ void main() {
         ),
       );
       await peer.nextPacket(3);
-      peer.socket.add([0x40, 0]); // PUBACK must contain a two-byte identifier.
-      await peer.socket.flush();
+      await peer.sendBytes([0x40, 0]); // PUBACK needs a two-byte identifier.
       await sending;
       await peer.disconnected;
       expect(time.activeTimers, 0);
@@ -628,8 +638,7 @@ void main() {
     );
     await peer.nextPacket(3);
     // Announce 268,435,455 bytes without allocating or transmitting that body.
-    peer.socket.add([0x30, 0xff, 0xff, 0xff, 0x7f]);
-    await peer.socket.flush();
+    await peer.sendBytes([0x30, 0xff, 0xff, 0xff, 0x7f]);
     await sending;
     await peer.disconnected;
     expect(client.pendingBytes, 0);
@@ -656,8 +665,7 @@ void main() {
       final peer = await establish();
       time.elapse(const Duration(seconds: 150));
       await peer.nextPacket(12);
-      peer.socket.add([0xd0, 0]);
-      await peer.socket.flush();
+      await peer.sendBytes([0xd0, 0]);
       // A subsequent PUBACK proves the preceding PINGRESP was processed. Merely
       // pumping the event queue does not guarantee that TLS input has arrived.
       final sending = client.sendEvent(TelemetryMessage([1]));
@@ -684,6 +692,7 @@ void main() {
       );
       client = DeviceClient(
         supplied,
+        transport: transport,
         port: server.port,
         securityContext: clientContext(),
         now: () => epoch.add(const Duration(seconds: 2)),

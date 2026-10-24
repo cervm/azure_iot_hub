@@ -5,9 +5,8 @@ import 'dart:io';
 // A minimal loopback MQTT peer: tests explicitly send CONNACK and PUBACK.
 // It is deliberately not an Azure emulator or a general-purpose broker.
 final class MqttPeerServer {
-  MqttPeerServer._(Stream<Socket> sockets, this.port, this._closeServer) {
-    _listener = sockets.listen((socket) {
-      final peer = MqttPeer(socket);
+  MqttPeerServer._(Stream<MqttPeer> incoming, this.port, this._closeServer) {
+    _listener = incoming.listen((peer) {
       peers.add(peer);
       _connections.add(peer);
     }, onError: (Object error) => errors.add(error));
@@ -15,7 +14,11 @@ final class MqttPeerServer {
 
   static Future<MqttPeerServer> start() async {
     final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-    return MqttPeerServer._(server, server.port, server.close);
+    return MqttPeerServer._(
+      server.map(MqttPeer.new),
+      server.port,
+      server.close,
+    );
   }
 
   static Future<MqttPeerServer> startTls(SecurityContext context) async {
@@ -24,7 +27,33 @@ final class MqttPeerServer {
       0,
       context,
     );
-    return MqttPeerServer._(server, server.port, server.close);
+    return MqttPeerServer._(
+      server.map(MqttPeer.new),
+      server.port,
+      server.close,
+    );
+  }
+
+  static Future<MqttPeerServer> startWebSocket(SecurityContext context) async {
+    final server = await HttpServer.bindSecure(
+      InternetAddress.loopbackIPv4,
+      0,
+      context,
+    );
+    final peers = server.asyncMap((request) async {
+      final socket = await WebSocketTransformer.upgrade(
+        request,
+        protocolSelector: (protocols) =>
+            protocols.contains('mqtt') ? 'mqtt' : null,
+        compression: CompressionOptions.compressionOff,
+      );
+      return MqttPeer.webSocket(socket);
+    });
+    return MqttPeerServer._(
+      peers,
+      server.port,
+      () => server.close(force: true),
+    );
   }
 
   final Future<void> Function() _closeServer;
@@ -32,7 +61,7 @@ final class MqttPeerServer {
   final peers = <MqttPeer>[];
   final _connections = StreamController<MqttPeer>();
   late final _iterator = StreamIterator(_connections.stream);
-  late final StreamSubscription<Socket> _listener;
+  late final StreamSubscription<MqttPeer> _listener;
   bool _listening = false;
   final int port;
 
@@ -55,18 +84,32 @@ final class MqttPeerServer {
 }
 
 final class MqttPeer {
-  MqttPeer(this.socket) {
-    unawaited(socket.done.then<void>((_) {}, onError: (Object error) {}));
-    _listener = socket.listen(
+  MqttPeer(Socket socket) : this._(socket, socket, null);
+
+  MqttPeer.webSocket(WebSocket socket)
+    : this._(socket.cast<List<int>>(), null, socket);
+
+  MqttPeer._(Stream<List<int>> input, this._socket, this._webSocket) {
+    _socket?.done.ignore();
+    _listener = input.listen(
       _read,
-      onError: (Object error) {
-        _finish();
-      },
+      onError: (Object error) => _finish(),
       onDone: _finish,
     );
   }
 
-  final Socket socket;
+  final Socket? _socket;
+  final WebSocket? _webSocket;
+
+  Future<void> sendBytes(List<int> bytes) async {
+    if (_webSocket case final socket?) {
+      socket.add(bytes);
+    } else {
+      _socket!.add(bytes);
+      await _socket.flush();
+    }
+  }
+
   final _buffer = <int>[];
   final _packets = StreamController<Packet>();
   final _disconnected = Completer<void>();
@@ -111,8 +154,7 @@ final class MqttPeer {
   }
 
   Future<void> connack({int code = 0, bool twinResponses = false}) async {
-    socket.add([0x20, 2, 0, code]);
-    await socket.flush();
+    await sendBytes([0x20, 2, 0, code]);
     if (twinResponses && code == 0) await acceptTwinSubscription();
   }
 
@@ -128,13 +170,11 @@ final class MqttPeer {
   }
 
   Future<void> suback(int id, {int qos = 1}) async {
-    socket.add([0x90, 3, id >> 8, id & 255, qos]);
-    await socket.flush();
+    await sendBytes([0x90, 3, id >> 8, id & 255, qos]);
   }
 
   Future<void> unsuback(int id) async {
-    socket.add([0xb0, 2, id >> 8, id & 255]);
-    await socket.flush();
+    await sendBytes([0xb0, 2, id >> 8, id & 255]);
   }
 
   Future<void> publish(String topic, List<int> payload, {int id = 1}) async {
@@ -155,17 +195,16 @@ final class MqttPeer {
       if (remaining > 0) digit |= 128;
       length.add(digit);
     } while (remaining > 0);
-    socket.add([0x32, ...length, ...body]);
-    await socket.flush();
+    await sendBytes([0x32, ...length, ...body]);
   }
 
   Future<void> puback(int id) async {
-    socket.add([0x40, 2, id >> 8, id & 255]);
-    await socket.flush();
+    await sendBytes([0x40, 2, id >> 8, id & 255]);
   }
 
   Future<void> close() async {
-    socket.destroy();
+    _socket?.destroy();
+    unawaited(_webSocket?.close());
     await _listener.cancel();
     await _iterator.cancel();
     _finish();

@@ -1,10 +1,19 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:azure_iot_hub/src/transport/mqtt_transport_type.dart';
 import 'package:azure_iot_hub/src/transport/owned_tls_connection.dart';
+import 'package:azure_iot_hub/src/transport/owned_websocket_connection.dart';
+import 'package:mqtt_client/mqtt_client.dart';
 import 'package:test/test.dart';
 
 void main() {
+  for (final transport in MqttTransportType.values) {
+    group(transport.name, () => lateSetupTest(transport));
+  }
+}
+
+void lateSetupTest(MqttTransportType transport) {
   test(
     'late DNS/task completion closes an already connected socket without TLS',
     () async {
@@ -25,17 +34,34 @@ void main() {
       peer.listen(received.addAll, onDone: closed.complete);
 
       final gate = Completer<ConnectionTask<RawSocket>>();
-      final connection = OwnedTlsConnection(
-        null,
-        maxBufferedBytes: 4096,
-        onFailure: (_) => fail('No unsolicited disconnect expected.'),
-        startConnect: (_, _) => gate.future,
-      );
+      final started = Completer<void>();
+      Future<ConnectionTask<RawSocket>> start(String host, int port) {
+        started.complete();
+        return gate.future;
+      }
+
+      void failed(Object error) => fail('No unsolicited disconnect expected.');
+      final MqttConnectionBase connection = switch (transport) {
+        MqttTransportType.tcp => OwnedTlsConnection(
+          null,
+          maxBufferedBytes: 4096,
+          onFailure: failed,
+          startConnect: start,
+        ),
+        MqttTransportType.webSocket => OwnedWebSocketConnection(
+          null,
+          maxBufferedBytes: 4096,
+          onFailure: failed,
+          startConnect: start,
+        ),
+      };
       final connecting = expectLater(
         connection.connect('test', 8883),
         throwsA(isA<SocketException>()),
       );
+      await started.future;
       connection.closeClient();
+      await pumpEventQueue();
       gate.complete(task);
       await connecting;
       await closed.future.timeout(const Duration(seconds: 2));

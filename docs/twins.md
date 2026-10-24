@@ -46,9 +46,10 @@ early-response payload bytes also consume that budget. Cancellation before PUBAC
 retains the MQTT reservation until acknowledgement or retirement; after PUBACK it
 releases the response waiter immediately. Closing releases all waiters and timers.
 
-Controlled TLS tests cover adapted C# happy paths, pre-cancellation, service failure
-and timeout cases for GET and PATCH, plus ordering, correlation, retry, cancellation,
-serialization and capacity regressions. The opt-in `test/integration/twin_test.dart`
+Controlled TLS and WSS tests cover adapted C# happy paths, pre-cancellation,
+service failure and timeout cases for GET and PATCH, plus ordering, correlation,
+retry, cancellation, serialization and capacity regressions. The opt-in
+`test/integration/twin_test.dart`
 reads a real device twin. `test/integration/reported_properties_test.dart` writes a
 unique `sdkPatchTest_...` property, verifies nested merge/deletion, and deletes the
 property in `finally`. Failed network cleanup may leave that test property behind;
@@ -94,9 +95,9 @@ uses the connection deadline.
 therefore skip SUBSCRIBE. Dart tracks acknowledged subscription state and subscribes
 again after removal. Rejected SUBACKs follow the existing protocol-error policy.
 
-Controlled TLS tests adapt C# registration, replacement, removal, callback and
-cancellation/timeout cases. Additional cases cover reconnect without GET, repeated
-versions, asynchronous callback work, cancellation races, missing acknowledgements,
+Controlled TLS and WSS tests adapt C# registration, replacement, removal, callback
+and cancellation/timeout cases. Additional cases cover reconnect without GET,
+repeated versions, asynchronous callback work, cancellation races, missing acknowledgements,
 callback failures and shutdown. The opt-in
 [`desired_properties_test.dart`](../test/integration/desired_properties_test.dart)
 prompts for two portal edits to verify delivery before and after callback removal

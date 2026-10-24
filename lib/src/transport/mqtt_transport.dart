@@ -6,7 +6,10 @@ import 'package:mqtt_client/mqtt_client.dart';
 import 'package:typed_data/typed_buffers.dart';
 
 import '../pending_operation.dart';
+import 'connection_diagnostics.dart';
+import 'mqtt_transport_type.dart';
 import 'owned_tls_connection.dart';
+import 'owned_websocket_connection.dart';
 
 enum TransportFailureKind { network, tls, authentication, protocol }
 
@@ -26,7 +29,9 @@ final class MqttTransport extends MqttClient {
     super.clientIdentifier, {
     required int port,
     required int maxBufferedBytes,
+    MqttTransportType transport = MqttTransportType.tcp,
     SecurityContext? securityContext,
+    ConnectionDiagnostics? diagnostics,
     Schedule schedule = Timer.new,
     DateTime Function() now = DateTime.now,
   }) {
@@ -41,6 +46,8 @@ final class MqttTransport extends MqttClient {
     clientEventBus = bus;
     _handler = _ConnectionHandler(
       bus,
+      transport: transport,
+      diagnostics: diagnostics,
       securityContext: securityContext,
       maxBufferedBytes: maxBufferedBytes,
       schedule: schedule,
@@ -77,17 +84,29 @@ final class MqttTransport extends MqttClient {
 final class _ConnectionHandler extends MqttConnectionHandlerBase {
   _ConnectionHandler(
     super.clientEventBus, {
+    required MqttTransportType transport,
+    required this.diagnostics,
     required SecurityContext? securityContext,
     required int maxBufferedBytes,
     required this.schedule,
     required this.now,
   }) : super(maxConnectionAttempts: 1) {
-    _wire = OwnedTlsConnection(
-      clientEventBus,
-      securityContext: securityContext,
-      maxBufferedBytes: maxBufferedBytes,
-      onFailure: _failed,
-    );
+    _wire = switch (transport) {
+      MqttTransportType.tcp => OwnedTlsConnection(
+        clientEventBus,
+        securityContext: securityContext,
+        diagnostics: diagnostics,
+        maxBufferedBytes: maxBufferedBytes,
+        onFailure: _failed,
+      ),
+      MqttTransportType.webSocket => OwnedWebSocketConnection(
+        clientEventBus,
+        securityContext: securityContext,
+        diagnostics: diagnostics,
+        maxBufferedBytes: maxBufferedBytes,
+        onFailure: _failed,
+      ),
+    };
     connection = _wire;
     initialiseListeners();
     registerForMessage(MqttMessageType.pingResponse, (_) {
@@ -99,8 +118,9 @@ final class _ConnectionHandler extends MqttConnectionHandlerBase {
   }
 
   final Schedule schedule;
+  final ConnectionDiagnostics? diagnostics;
   final DateTime Function() now;
-  late final OwnedTlsConnection _wire;
+  late final MqttConnectionBase _wire;
   final _result = Completer<MqttClientConnectionStatus>();
   Future<void> settled = Future.value();
   TransportFailure? failure;
@@ -120,6 +140,7 @@ final class _ConnectionHandler extends MqttConnectionHandlerBase {
         .connect(hostname, port)
         .then<void>((_) {
           if (_aborted) return;
+          diagnostics?.stage = ConnectionStage.mqttConnack;
           // MqttClient overwrites this field. Advertise the C# default while using
           // its separate 75-second idle check and 30-second PINGRESP deadline.
           message!.variableHeader!.keepAlive = 300;
@@ -213,6 +234,10 @@ final class _ConnectionHandler extends MqttConnectionHandlerBase {
             FormatException() => TransportFailureKind.protocol,
             _ => TransportFailureKind.network,
           });
+    diagnostics?.recordFailure(
+      failure!.kind,
+      httpStatus: error is WebSocketException ? error.httpStatusCode : null,
+    );
     abort();
     onDisconnected?.call();
   }

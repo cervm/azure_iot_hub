@@ -27,3 +27,7 @@
   the pinned C# re-registration defect by agreement.
 - Add an opt-in manual Azure test for desired-property delivery and callback
   re-registration; record the successful user-run live test.
+- Add internal MQTT over secure WebSockets with IoT Hub's SAS query option,
+  bounded buffers, owned TLS/HTTP setup and credential-safe failure diagnostics.
+  Reuse telemetry/twin lifecycle tests across both transports; add WSS wire and
+  cleanup regressions and an opt-in telemetry/twin test, validated against IoT Hub.

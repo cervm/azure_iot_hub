@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'package:azure_iot_hub/src/device_client.dart';
 import 'package:azure_iot_hub/src/pending_operation.dart';
 import 'package:azure_iot_hub/src/telemetry_message.dart';
+import 'package:azure_iot_hub/src/transport/mqtt_transport_type.dart';
 import 'package:cancellation_token/cancellation_token.dart';
 import 'package:test/test.dart';
 
@@ -25,15 +26,27 @@ Future<void> respondPatch(
 }) => respond(peer, requestId(request), status: status, body: body);
 
 void main() {
+  for (final transport in MqttTransportType.values) {
+    group(transport.name, () => transportTests(transport));
+  }
+}
+
+void transportTests(MqttTransportType transport) {
   late MqttPeerServer server;
   late ManualTime time;
   late DeviceClient client;
 
   setUp(() async {
-    server = await MqttPeerServer.startTls(serverContext());
+    server = await switch (transport) {
+      MqttTransportType.tcp => MqttPeerServer.startTls(serverContext()),
+      MqttTransportType.webSocket => MqttPeerServer.startWebSocket(
+        serverContext(),
+      ),
+    };
     time = ManualTime();
     client = DeviceClient(
       credentials(),
+      transport: transport,
       port: server.port,
       securityContext: clientContext(),
       operationTimeout: const Duration(seconds: 90),

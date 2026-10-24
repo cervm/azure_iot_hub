@@ -22,11 +22,12 @@ fvm dart test
 The [cancellation/MQTT prototype](docs/mqtt-prototype.md) exercises the actual MQTT
 client against a controlled loopback peer. It is test-only and needs no Azure credentials.
 
-An internal client now connects using device SAS credentials over MQTT/TLS and
-sends QoS 1 telemetry, completing on PUBACK. Controlled TLS tests cover retries,
-cancellation, deadlines, certificate validation, stalled-handshake cleanup and
-bounded pending work. Shared-key SAS tokens are cached and refreshed on reconnect
-when eligible, following C#; renewal does not schedule disconnects. See the
+An internal client now connects using device SAS credentials over MQTT/TLS or
+secure WebSockets and sends QoS 1 telemetry, completing on PUBACK. Tests over both
+transports cover retries, cancellation, deadlines, certificate validation,
+stalled-handshake cleanup and bounded pending work. Shared-key SAS tokens are
+cached and refreshed on reconnect when eligible, following C#; renewal does not
+schedule disconnects. See the
 [transport notes](docs/telemetry-transport.md).
 
 Internal twin retrieval and reported-property updates subscribe to responses
@@ -40,8 +41,7 @@ The prototype uses the SDK's internal operation lifecycle for linked cancellatio
 finite deadlines and delivery uncertainty. `cancellation_token` remains an internal
 dependency; its types are not exported by this package.
 
-External token replacement, secure WebSockets and the public API remain
-unimplemented.
+External token replacement and the public API remain unimplemented.
 
 The live Azure telemetry smoke test has passed in a user-run test. Linux ARM64
 and long-running reliability validation remain outstanding.
@@ -58,6 +58,17 @@ AZURE_IOT_RUN_INTEGRATION=1 fvm dart test test/integration/telemetry_test.dart
 This sends one telemetry event and waits for IoT Hub's PUBACK. It does not verify
 downstream routing or consumption. Normal test runs skip it; never put credentials
 in source files, command arguments or test logs.
+
+To validate secure WebSockets on port 443 with the same device:
+
+```sh
+AZURE_IOT_RUN_INTEGRATION=1 fvm dart test test/integration/websocket_test.dart
+```
+
+This sends telemetry and retrieves the twin over WSS. It checks PUBACK and twin
+versions without changing twin properties. The user-run test passed on
+24 October 2026 after adding the documented SAS query option; see the
+[transport validation notes](docs/telemetry-transport.md).
 
 To validate twin retrieval separately with the same environment configuration:
 

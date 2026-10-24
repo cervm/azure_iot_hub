@@ -15,10 +15,12 @@ import 'authentication/iot_hub_connection_string.dart';
 import 'authentication/sas_token_cache.dart';
 import 'pending_operation.dart';
 import 'telemetry_message.dart';
+import 'transport/connection_diagnostics.dart';
 import 'transport/mqtt_transport.dart';
+import 'transport/mqtt_transport_type.dart';
 import 'twin.dart';
 
-/// An internal TLS device client; not yet the package's public device API.
+/// An internal MQTT device client; not yet the package's public device API.
 final class DeviceClient {
   DeviceClient(
     this.credentials, {
@@ -27,12 +29,14 @@ final class DeviceClient {
     this.twinResponseTimeout = const Duration(seconds: 60),
     this.maxPending = 16,
     this.maxPendingBytes = 4 * 1024 * 1024,
-    this.port = 8883,
+    this.transport = MqttTransportType.tcp,
+    int? port,
     this.securityContext,
     this.schedule = Timer.new,
     this.now = DateTime.now,
     int Function(int)? randomInt,
-  }) : _randomInt = randomInt ?? Random().nextInt,
+  }) : port = port ?? transport.defaultPort,
+       _randomInt = randomInt ?? Random().nextInt,
        _sasTokens = SasTokenCache(credentials, now: now) {
     if (operationTimeout <= Duration.zero ||
         connectionTimeout <= Duration.zero ||
@@ -40,18 +44,20 @@ final class DeviceClient {
         maxPending < 1 ||
         maxPending > 32767 ||
         maxPendingBytes < 1 ||
-        port < 1 ||
-        port > 65535) {
+        this.port < 1 ||
+        this.port > 65535) {
       throw ArgumentError('Invalid timeout, capacity or port.');
     }
   }
 
   final IotHubConnectionString credentials;
+  final connectionDiagnostics = ConnectionDiagnostics();
   final Duration operationTimeout;
   final Duration connectionTimeout;
   final Duration twinResponseTimeout;
   final int maxPending;
   final int maxPendingBytes;
+  final MqttTransportType transport;
   final int port;
   final SecurityContext? securityContext;
   final Schedule schedule;
@@ -242,10 +248,13 @@ final class DeviceClient {
     try {
       if (_closed) return;
       final token = _sasTokens.getToken();
+      connectionDiagnostics.attempts++;
       final transport = MqttTransport(
         credentials.connectionHostName,
         credentials.deviceId,
         port: port,
+        transport: this.transport,
+        diagnostics: connectionDiagnostics,
         maxBufferedBytes: maxPendingBytes + 65536,
         securityContext: securityContext,
         schedule: schedule,
@@ -256,7 +265,10 @@ final class DeviceClient {
       current = attempt;
       _attempt = attempt;
       transport.onDisconnected = () => _lost(attempt);
-      attempt.deadline = schedule(connectionTimeout, () => _lost(attempt));
+      attempt.deadline = schedule(connectionTimeout, () {
+        connectionDiagnostics.recordFailure(OperationFailureReason.timeout);
+        _lost(attempt);
+      });
       final status = await transport.connect(
         '${credentials.hostName}/${credentials.deviceId}/?'
         'api-version=2020-09-30&DeviceClientType='
@@ -335,6 +347,7 @@ final class DeviceClient {
         _stopRecovery(OperationFailureReason.protocol);
         _lost(attempt);
       };
+      connectionDiagnostics.stage = ConnectionStage.twinSubscription;
       if (transport.subscribe(r'$iothub/twin/res/#', MqttQos.atLeastOnce) ==
           null) {
         _lost(attempt);
@@ -356,6 +369,7 @@ final class DeviceClient {
   void _connectedReady(_Attempt attempt) {
     attempt.deadline?.cancel();
     _connected = true;
+    connectionDiagnostics.stage = ConnectionStage.ready;
     _retryCount = 0;
     _flush();
   }
