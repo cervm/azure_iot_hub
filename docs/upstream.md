@@ -14,7 +14,8 @@ Verified on 24 October 2026:
 
 ## Initial source/test map
 
-These are reference points, not implemented Dart coverage yet.
+These are reference points for the SDK. Prototype and internal authentication
+coverage are listed below; the public device APIs and twin coverage remain unimplemented.
 
 | Behaviour | C# reference at the pinned commit | Dart coverage to add |
 | --- | --- | --- |
@@ -45,6 +46,52 @@ These are reference points, not implemented Dart coverage yet.
 - Pending work and transport resources must remain bounded even when callers
   cancel or acknowledgements never arrive. Cancellation after submission must
   preserve delivery uncertainty.
+
+## Prototype coverage
+
+[mqtt_cancellation_test.dart](../test/prototype/mqtt_cancellation_test.dart) adapts
+`MqttTransportHandlerOpenAsyncTokenCancellationRequested` and
+`MqttTransportHandlerSendEventAsyncTokenCancellationRequested` from the pinned C#
+MQTT suite, retaining their names and pre-cancelled-token scenarios. The adapted
+tests carry Microsoft's copyright notice and the
+[upstream MIT licence](../third_party/azure-iot-sdk-csharp-LICENSE).
+
+Additional Dart tests cover the agreed timeout deviation, cancellation during
+connection/publishing, PUBACK completion, late/duplicate acknowledgements, bounded
+pending packets, reconnect without deadline reset, stale disconnect callbacks and
+shutdown. These are new tests, not claims of porting C# test coverage wholesale.
+See [prototype findings](mqtt-prototype.md) for the dependency fixes and remaining
+validation boundaries.
+
+## Internal authentication coverage
+
+All C# paths below are relative to `iothub/device/` at the pinned commit.
+
+| Responsibility | C# source | Dart implementation / tests |
+| --- | --- | --- |
+| Connection-string parsing and validation | `src/Authentication/IotHubConnectionStringBuilder.cs`, `src/Common/Extensions/CommonExtensions.cs`, `tests/Authentication/IotHubConnectionStringBuilderTests.cs` | [Parser](../lib/src/authentication/iot_hub_connection_string.dart), [adapted tests](../test/authentication/iot_hub_connection_string_test.dart) |
+| Device/policy token scope | `src/Authentication/DeviceAuthenticationWithSakRefresh.cs`, `src/Authentication/IotHubConnectionString.cs` | `IotHubConnectionString.createSasToken`; independent HMAC vectors in the parser tests |
+| Token signing, expiry and external tokens | `src/Common/Security/SharedAccessSignatureBuilder.cs`, `SharedAccessSignature.cs`, `SharedAccessSignatureConstants.cs`, `StringValidationHelper.cs` in the same directory | [SAS implementation](../lib/src/authentication/shared_access_signature.dart), [tests](../test/authentication/shared_access_signature_test.dart) |
+| Fixed expiry example | `tests/Authentication/HsmAuthentication/SasTokenBuilderTest.cs` | `TestBuildExpiry_ShouldReturnExpireOn` in the SAS tests |
+
+The named parser cases retain the upstream scenarios for host, device ID, complex
+legacy IDs, credentials, policy name, gateway, missing properties and conflicting
+credentials. Dart has no thread-local culture setting; its culture case checks
+that device ID casing is preserved. Module and X.509 credentials are explicitly
+unsupported in this initial device SAS subset.
+
+Signing preserves C#'s one-hour builder default, `WebUtility.UrlEncode` semantics,
+device-ID encoding before audience encoding, hub scope for policy keys and
+round-to-even expiry seconds. External tokens retain their original bytes and
+expiry. Their parser retains C#'s five-minute clock-skew allowance; that allowance
+must not postpone renewal or imply service-side validity after expiry.
+
+Errors use Dart `FormatException` without the input as its source. Diagnostic
+`toString()` methods redact credentials, as required by PSW-252; they do not provide
+C#'s connection-string serialization. These classes are internal and unexported.
+Token renewal/replacement, provider callbacks, public error types and transport
+authentication remain to be implemented. The protocol reference is Microsoft's
+[SAS authentication contract](https://learn.microsoft.com/en-us/azure/iot-hub/authenticate-authorize-sas).
 
 ## Upstream maintenance
 

@@ -5,6 +5,14 @@ version: 0.1.0-dev.1
 environment:
   sdk: ^3.13.5
 
+dependencies:
+  crypto: ^3.0.7
+
 dev_dependencies:
+  cancellation_token: 2.0.1
   lints: ^6.0.0
+  mqtt_client:
+    git:
+      url: https://github.com/cervm/mqtt_client.git
+      ref: e9baef8c848f3ada77b1f02750adf479ab8b3f0d
   test: ^1.25.6

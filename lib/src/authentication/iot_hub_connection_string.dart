@@ -1,0 +1,131 @@
+// Copyright (c) Microsoft. All rights reserved.
+// Licensed under the MIT license; see third_party/azure-iot-sdk-csharp-LICENSE.
+// Adapted from the pinned C# SDK's IotHubConnectionStringBuilder,
+// CommonExtensionMethods.ToDictionary and DeviceAuthenticationWithSakRefresh.
+// See docs/upstream.md for the source mapping.
+import 'shared_access_signature.dart';
+
+/// The internal connection-string representation for device SAS authentication.
+final class IotHubConnectionString {
+  const IotHubConnectionString._({
+    required this.hostName,
+    required this.deviceId,
+    this.gatewayHostName,
+    this.sharedAccessKey,
+    this.sharedAccessKeyName,
+    this.sharedAccessSignature,
+  });
+
+  /// Parses supported device credentials using C# connection-string semantics.
+  factory IotHubConnectionString.parse(String value, {required DateTime now}) {
+    // Splitting on every semicolon corrupts legacy device IDs allowed by C#.
+    final matches = RegExp(r'(?:^|;)([^;=]*)=').allMatches(value).toList();
+    if (matches.isEmpty) {
+      throw const FormatException('Malformed connection string.');
+    }
+    final fields = <String, String>{};
+    for (var i = 0; i < matches.length; i++) {
+      final match = matches[i];
+      final name = match[1]!.toLowerCase();
+      if (fields.containsKey(name)) {
+        throw const FormatException('Duplicate connection-string property.');
+      }
+      final end = i + 1 < matches.length ? matches[i + 1].start : value.length;
+      fields[name] = value.substring(match.end, end);
+    }
+
+    final hostName = fields['hostname'];
+    final deviceId = fields['deviceid'];
+    _validate(hostName, 'HostName', _hostNamePattern);
+    _validate(deviceId, 'DeviceId', _deviceIdPattern);
+    if (fields.containsKey('moduleid')) {
+      throw UnsupportedError('Module credentials are not supported.');
+    }
+    if (fields['x509']?.toLowerCase() == 'true' ||
+        fields['x509cert']?.toLowerCase() == 'true') {
+      throw UnsupportedError('X.509 credentials are not supported.');
+    }
+
+    final key = fields['sharedaccesskey'];
+    final token = fields['sharedaccesssignature'];
+    if ((key == null || key.trim().isEmpty) ==
+        (token == null || token.trim().isEmpty)) {
+      throw const FormatException(
+        'Specify either SharedAccessKey or SharedAccessSignature.',
+      );
+    }
+    final keyName = fields['sharedaccesskeyname'];
+    if (keyName != null) {
+      _validate(keyName, 'SharedAccessKeyName', _keyNamePattern);
+      if (key == null) {
+        throw const FormatException('SharedAccessKeyName requires a key.');
+      }
+    }
+    if (key != null) {
+      _validate(key, 'SharedAccessKey', RegExp(r'^.+$'));
+      decodeSharedAccessKey(key);
+    }
+    final gateway = fields['gatewayhostname'];
+    if (gateway != null && gateway.isNotEmpty) {
+      _validate(gateway, 'GatewayHostName', _hostNamePattern);
+    }
+    return IotHubConnectionString._(
+      hostName: hostName!,
+      deviceId: deviceId!,
+      gatewayHostName: gateway,
+      sharedAccessKey: key,
+      sharedAccessKeyName: keyName,
+      sharedAccessSignature: key != null
+          ? null
+          : SharedAccessSignature.parse(token!, now: now),
+    );
+  }
+
+  final String hostName;
+  final String deviceId;
+  final String? gatewayHostName;
+  final String? sharedAccessKey;
+  final String? sharedAccessKeyName;
+  final SharedAccessSignature? sharedAccessSignature;
+
+  /// The network destination, which can differ from the SAS audience.
+  String get connectionHostName =>
+      gatewayHostName?.isNotEmpty ?? false ? gatewayHostName! : hostName;
+
+  /// Produces a device-scoped token, or a hub-scoped token for a policy key.
+  ///
+  /// Returns an externally supplied token unchanged, as the C# provider does.
+  /// The client must arrange renewal or replacement before its actual expiry.
+  SharedAccessSignature createSasToken({
+    required DateTime now,
+    Duration timeToLive = const Duration(hours: 1),
+  }) {
+    final supplied = sharedAccessSignature;
+    if (supplied != null) {
+      return supplied;
+    }
+    return SharedAccessSignature.generate(
+      key: sharedAccessKey!,
+      target: sharedAccessKeyName == null
+          ? '$hostName/devices/${encodeSasComponent(deviceId)}'
+          : hostName,
+      keyName: sharedAccessKeyName,
+      now: now,
+      timeToLive: timeToLive,
+    );
+  }
+
+  @override
+  String toString() => 'IotHubConnectionString(<redacted>)';
+}
+
+// Preserve the reference SDK's validation expressions for supported fields.
+final _hostNamePattern = RegExp(r'[a-zA-Z0-9_\-.]+$');
+final _deviceIdPattern = RegExp(r"^[A-Za-z0-9\-:.+%_#*?!(),=@;$']{1,128}$");
+final _keyNamePattern = RegExp(r'^[a-zA-Z0-9_\-@.]+$');
+
+void _validate(String? value, String property, RegExp pattern) {
+  if (value == null || value.trim().isEmpty || !pattern.hasMatch(value)) {
+    throw FormatException('Missing or invalid $property.');
+  }
+}

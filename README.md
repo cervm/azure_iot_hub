@@ -16,4 +16,12 @@ Use the Dart SDK pinned by FVM:
 fvm dart pub get
 fvm dart format .
 fvm dart analyze
+fvm dart test
 ```
+
+The [cancellation/MQTT prototype](docs/mqtt-prototype.md) exercises the actual MQTT
+client against a controlled loopback peer. It is test-only and needs no Azure credentials.
+
+Internal connection-string parsing and SAS signing are implemented with adapted
+C# tests. They are not yet exposed through a public device client; token renewal
+and transport integration remain to be implemented.
