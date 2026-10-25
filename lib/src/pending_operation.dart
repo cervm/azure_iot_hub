@@ -24,7 +24,7 @@ enum OperationFailureReason {
   /// TLS setup or certificate validation failed.
   tls,
 
-  /// Negotiation, a required subscription or incoming protocol data was invalid.
+  /// Protocol data, negotiation, a subscription or message completion was invalid.
   protocol,
 
   /// The service returned a terminal error response.

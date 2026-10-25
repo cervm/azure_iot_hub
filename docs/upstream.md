@@ -408,7 +408,8 @@ execution and response sending settle, including across reconnect. These are wor
 budgets, not exact process-memory limits. Responses share the existing outgoing
 budget and finite operation deadline. Excess incoming calls receive 503 if response
 capacity permits; otherwise they are dropped and the cloud caller times out.
-Rejected QoS 1 calls are acknowledged immediately to release their payloads.
+Rejected QoS 1 calls are acknowledged as soon as earlier deliveries permit, to
+release their payloads.
 There is no unbounded incoming queue or forced cancellation of application work.
 Registration tokens do not cancel accepted handlers. Close does not await handlers;
 late results/errors are consumed without sending or reopening the client.
@@ -429,6 +430,84 @@ the user reported the [manual example](../example/direct_methods_example.dart)
 worked over MQTT/TLS: the named handler returned 200 with `{"ready":true}`, and the
 default handler returned 501 for an unregistered method. Live WSS method calls,
 overload handling and method subscription recovery remain unverified.
+
+## Cloud-to-device messages
+
+`receive({timeout, cancellationToken})` returns one immutable
+`CloudToDeviceMessage`, or null when its finite wait expires. The default is the
+client's operation timeout, including connection setup and retries. Caller
+cancellation remains an `OperationFailure.cancelled`. A registered callback makes
+new polling receives return null, following C#. Concurrent polling waits share
+the existing pending-operation count limit.
+
+`setReceiveMessageHandler(handler)` subscribes to
+`devices/{deviceId}/messages/devicebound/#` at QoS 1 and waits for SUBACK.
+Replacement needs no wire exchange. Passing null clears the handler locally
+before awaiting UNSUBACK; reconnect restores committed callback subscriptions.
+Messages arriving before registration completes are retained within the incoming
+budget. Polling leaves its subscription active for the current connection, even
+after a receive timeout; a pending/new receive subscribes again after reconnect.
+
+Callbacks follow the existing desired-property style: synchronous dispatch without
+awaiting application futures. The application owns asynchronous work, errors and
+timeouts. Returning from a callback does not complete the message. Synchronous
+dispatch failures retire the connection without acknowledgement. Closing does not
+await application work.
+
+`complete(message)` explicitly sends PUBACK. Foreign, already-completed, retired
+or out-of-order deliveries fail with `OperationFailure.protocol`; QoS 0 deliveries
+cannot be completed. The SDK uses object identity and connection lifetime instead
+of exposing C#'s generation-prefixed lock-token string. PUBACK submission has no
+service acknowledgement of its own, so success cannot rule out redelivery after
+a disconnect. MQTT supports neither abandon nor reject.
+
+**Agreed ordering corrections:** C# `MqttTransportHandler.CompleteAsync` dequeues
+before validating the supplied lock token, losing an earlier entry on mismatch.
+Its automatic twin/method completion can encounter that same queue behind an
+unfinished C2D delivery. Dart validates without consuming earlier entries and
+defers automatic PUBACKs until preceding deliveries are ready. Twin/desired
+processing and method responses can proceed meanwhile. Explicit completion waiting
+behind earlier internal work retains the normal finite timeout and cancellation;
+cancellation before submission leaves the delivery available for completion.
+This follows [MQTT 3.1.1 §4.6, MQTT-4.6.0-2](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html).
+The owned transport sends these PUBACKs directly and releases mqtt_client's manual
+ACK entries. Its map holds only one entry per packet ID; this adaptation permits
+both an original and a duplicate QoS 1 delivery to complete in arrival order, as
+in C#'s `OrderedTwoPhaseWorkQueue`. It requires no additional fork change.
+
+**Agreed storage bound:** retained C2D messages and deferred QoS 1 acknowledgements
+share a separate incoming `maxPending`/`maxPendingBytes` budget, counting payload
+and topic bytes. This includes delivered C2D messages awaiting completion. Immediate
+twin/desired acknowledgements need no retained entry. Overflow retires the current
+connection without acknowledging excess C2D data; recovery allows unacknowledged
+QoS 1 deliveries to be redelivered. QoS 0 has no redelivery guarantee. No messages
+are persisted locally, and these work budgets are not exact process-memory limits.
+Application references and asynchronous callback work belong to the application.
+
+The message exposes immutable byte payloads, application/system property maps and
+message ID, correlation ID, content type and encoding getters. System map keys use
+their MQTT wire names; values remain strings rather than C#'s converted date/enum
+objects. Unknown system fields are preserved. URL decoding retains literal `+`,
+decodes escaped separators and uses the final value for repeated keys. By agreement,
+`key` retains null and `key=` retains an empty string; the pinned C# deserializer
+collapses both to null. The [IoT Hub MQTT property contract](https://learn.microsoft.com/en-us/azure/iot-hub/iot-mqtt-connect-to-iot-hub#receiving-cloud-to-device-messages)
+defines that distinction. Malformed properties fail without exposing their values.
+
+| Responsibility | Pinned C# reference | Dart coverage |
+| --- | --- | --- |
+| Polling, callback registration/removal and explicit completion | `iothub/device/src/InternalClient.cs`: `ReceiveAsync`, `SetReceiveMessageHandlerAsync`, `OnDeviceMessageReceivedAsync`, `CompleteAsync` | [Public API](../lib/src/device_client.dart), [receive implementation](../lib/src/internal_client_c2d.dart), [public tests](../test/device_client_api_test.dart) |
+| Subscription, receive queue, lock generation and ordered completion | `iothub/device/src/Transport/Mqtt/MqttTransportHandler.cs`: `ProcessC2dMessage`, `EnableReceiveMessageAsync`, `DisableReceiveMessageAsync`, `CompleteIncomingMessageAsync`, `CompleteAsync`; `RetryDelegatingHandler.HandleDisconnectAsync` | [Transport tests](../test/transport/cloud_to_device_test.dart) over TLS/WSS |
+| Property decoding | `MqttIotHubAdapter.PopulateMessagePropertiesFromPacket`, `src/Common/UrlEncodedDictionarySerializer.cs` | [Message type/parser](../lib/src/cloud_to_device_message.dart), [parser tests](../test/cloud_to_device_message_test.dart) |
+| Single receive, timeout, callback replacement/removal and pending deliveries | `e2e/test/iothub/messaging/MessageReceiveE2ETests.cs`: `Message_DeviceReceiveSingleMessage_Mqtt`, `Message_DeviceReceiveMessageOperationTimeout_Mqtt`, `DeviceReceiveMessageUsingCallback_Mqtt`, `DeviceReceiveMessageUsingCallbackUpdateHandler_Mqtt`, `DeviceReceiveMessageUsingCallbackAndUnsubscribe_Mqtt`, `DeviceReceivePendingMessageUsingCallback_Mqtt` | Named controlled adaptations in the transport suite; pre-cancellation also follows `MqttTransportHandlerTests` |
+
+Dart-specific tests cover capacity, stale completions, late SUBACKs, mixed-traffic
+acknowledgement order, queued delivery after callback re-registration, reentrant
+removal and completion cancellation/deadline/close races. The
+[manual live test](testing.md#manual-cloud-to-device-test) exercises polling and
+callback delivery through the public API. On 25 October 2026, the user reported
+both steps passed using the default MQTT/TLS configuration, including body
+verification and explicit completion submission. Live WSS C2D, service-side
+completion feedback and reconnect redelivery remain unverified.
 
 ## Upstream maintenance
 

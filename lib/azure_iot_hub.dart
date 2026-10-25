@@ -10,6 +10,8 @@ export 'src/connection_status.dart'
 export 'src/authentication/iot_hub_connection_string.dart'
     show SasTokenProvider;
 export 'src/device_client.dart' show DeviceClient;
+export 'src/cloud_to_device_message.dart'
+    show CloudToDeviceMessage, ReceiveMessageHandler;
 export 'src/direct_method.dart'
     show MethodCallback, MethodRequest, MethodResponse;
 export 'src/pending_operation.dart'

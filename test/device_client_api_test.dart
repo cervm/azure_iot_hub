@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:azure_iot_hub/azure_iot_hub.dart';
@@ -115,6 +116,31 @@ void transportTests(MqttTransportType transport) {
     await peer.connack(twinResponses: true);
     return peer;
   }
+
+  test('public C2D API supports polling, callbacks and completion', () async {
+    const topic = 'devices/device-1/messages/devicebound/';
+    final receiving = client.receive(timeout: const .new(seconds: 5));
+    final peer = await accept();
+    final subscription = await peer.nextPacket(8);
+    await peer.suback((subscription.body[0] << 8) | subscription.body[1]);
+    await peer.publish('${topic}key=value&%24.mid=first', [1], id: 51);
+    final CloudToDeviceMessage message = (await receiving)!;
+    expect(message.messageId, 'first');
+    expect(message.properties, {'key': 'value'});
+    await client.complete(message);
+    expect((await peer.nextPacket(4)).body, [0, 51]);
+    final callback = Completer<CloudToDeviceMessage>();
+    final ReceiveMessageHandler handler = callback.complete;
+    await client.setReceiveMessageHandler(handler);
+    expect(await client.receive(), isNull);
+    await peer.publish(topic, [2], id: 52);
+    await client.complete(await callback.future);
+    expect((await peer.nextPacket(4)).body, [0, 52]);
+    final removing = client.setReceiveMessageHandler(null);
+    final unsubscribe = await peer.nextPacket(10);
+    await peer.unsuback((unsubscribe.body[0] << 8) | unsubscribe.body[1]);
+    await removing;
+  });
 
   test(
     'public direct-method API registers, responds and removes handlers',

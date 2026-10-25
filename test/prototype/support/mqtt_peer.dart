@@ -182,6 +182,7 @@ final class MqttPeer {
     List<int> payload, {
     int id = 1,
     int qos = 1,
+    bool duplicate = false,
   }) async {
     final name = utf8.encode(topic);
     final body = [
@@ -199,7 +200,11 @@ final class MqttPeer {
       if (remaining > 0) digit |= 128;
       length.add(digit);
     } while (remaining > 0);
-    await sendBytes([0x30 | (qos << 1), ...length, ...body]);
+    await sendBytes([
+      0x30 | (qos << 1) | (duplicate ? 8 : 0),
+      ...length,
+      ...body,
+    ]);
   }
 
   Future<void> puback(int id) async {

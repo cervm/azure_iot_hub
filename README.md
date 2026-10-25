@@ -25,7 +25,7 @@ validation coverage and remaining gaps.
 | Retry and reconnect | Implemented | Transient failures; bounded pending work, no offline persistence |
 | Connection-status callbacks | Implemented | Connection, recovery and shutdown notifications |
 | Cancellation and timeouts | Implemented | SDK-owned tokens; finite timeout across retries |
-| Cloud-to-device messages | Not implemented | |
+| Cloud-to-device messages | Implemented | Polling or callbacks, properties and explicit ordered completion |
 | X.509 authentication | Not implemented | |
 | File upload | Not implemented | |
 | Module clients | Not implemented | |
@@ -74,6 +74,13 @@ with an integer status and optional JSON bytes. Passing null removes a handler.
 Handler execution is application-owned; registration and response sends use finite
 timeouts. See the [example](example/direct_methods_example.dart) and
 [method contract](docs/upstream.md#direct-methods).
+
+`receive()` waits for one cloud-to-device message; `setReceiveMessageHandler`
+registers a callback instead. Call `complete(message)` after processing, in receive
+order. Callback return does not acknowledge the message. Messages expose immutable
+payload bytes and application/system properties. See the
+[C2D contract](docs/upstream.md#cloud-to-device-messages) and
+[manual test](docs/testing.md#manual-cloud-to-device-test).
 
 Cancellation is optional: pass a `CancellationTokenSource`'s `token` and call
 `source.cancel()`. Every operation retains a finite timeout, four minutes by

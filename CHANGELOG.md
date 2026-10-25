@@ -14,4 +14,6 @@
 - Add connection-status callbacks for connection, recovery and shutdown.
 - Handle direct methods with named/default async callbacks, bounded incoming work,
   response retries and subscription recovery.
+- Receive cloud-to-device messages by polling or callback, with message properties,
+  explicit ordered completion and bounded incoming storage.
 - Include adapted C# tests, deterministic lifecycle tests and opt-in IoT Hub tests.

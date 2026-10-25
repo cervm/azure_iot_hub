@@ -1,6 +1,6 @@
 // Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license; see third_party/azure-iot-sdk-csharp-LICENSE.
-// Twin and direct-method handling adapts InternalClient, MqttTransportHandler
+// Message, twin and method handling adapts InternalClient, MqttTransportHandler
 // and the retry pipeline.
 // See docs/upstream.md for the pinned source/test mapping and agreed deviations.
 import 'dart:async';
@@ -15,6 +15,7 @@ import 'package:typed_data/typed_buffers.dart';
 import 'authentication/iot_hub_connection_string.dart';
 import 'authentication/sas_token_cache.dart';
 import 'cancellation.dart';
+import 'cloud_to_device_message.dart';
 import 'connection_status.dart';
 import 'direct_method.dart';
 import 'pending_operation.dart';
@@ -23,6 +24,8 @@ import 'transport/connection_diagnostics.dart';
 import 'transport/mqtt_transport.dart';
 import 'transport/mqtt_transport_type.dart';
 import 'twin.dart';
+
+part 'internal_client_c2d.dart';
 
 /// The MQTT implementation behind the public device client.
 final class InternalClient {
@@ -92,15 +95,23 @@ final class InternalClient {
   bool _methodsEnabled = false;
   int _methodCallCount = 0;
   int _methodCallBytes = 0;
+  ReceiveMessageHandler? _receiveHandler;
+  bool _receiveEnabled = false;
+  final _receivers = <PendingOperation<CloudToDeviceMessage?>>{};
+  String get _receivePrefix =>
+      'devices/${credentials.deviceId}/messages/devicebound/';
+  String get _receiveTopic => '$_receivePrefix#';
   static const _methodTopic = r'$iothub/methods/POST/#';
   static const _methodPrefix = r'$iothub/methods/POST/';
   static const _desiredTopic = r'$iothub/twin/PATCH/properties/desired/#';
   static const _desiredPrefix = r'$iothub/twin/PATCH/properties/desired/';
 
-  int get pendingCount => _pending.length;
+  int get pendingCount => _pending.length + _receivers.length;
   int get pendingBytes => _pendingBytes;
   int get methodCallCount => _methodCallCount;
   int get methodCallBytes => _methodCallBytes;
+  int get incomingCount => _attempt?.incoming.length ?? 0;
+  int get incomingBytes => _attempt?.incomingBytes ?? 0;
   bool get isConnected => _connected;
 
   void setConnectionStatusChangesHandler(
@@ -130,6 +141,26 @@ final class InternalClient {
     TelemetryMessage message, {
     CancellationToken? cancellationToken,
   }) => _submit(.telemetry, message, cancellationToken);
+
+  Future<CloudToDeviceMessage?> receive({
+    Duration? timeout,
+    CancellationToken? cancellationToken,
+  }) => _receive(timeout: timeout, token: cancellationToken);
+
+  Future<void> setReceiveMessageHandler(
+    ReceiveMessageHandler? handler, {
+    CancellationToken? cancellationToken,
+  }) => _submit(
+    .receiveSubscription,
+    null,
+    cancellationToken,
+    receiveHandler: handler,
+  );
+
+  Future<void> complete(
+    CloudToDeviceMessage message, {
+    CancellationToken? cancellationToken,
+  }) => _completeMessage(message, cancellationToken);
 
   /// Retrieves twin properties after PUBACK and a matching service response.
   Future<TwinProperties> getTwin({
@@ -198,6 +229,7 @@ final class InternalClient {
     _MethodRegistration? methodRegistration,
     String? methodRequestId,
     MethodResponse? methodResponse,
+    ReceiveMessageHandler? receiveHandler,
   }) {
     final reason = _closed
         ? OperationFailureReason.closed
@@ -221,6 +253,16 @@ final class InternalClient {
       _applyMethodRegistration(methodRegistration);
       return Future.value();
     }
+    if (kind == .receiveSubscription &&
+        _attempt?.receiveAction == null &&
+        !_pending.any((operation) => operation.kind == kind) &&
+        _receiveEnabled == (receiveHandler != null) &&
+        (receiveHandler != null || !(_attempt?.receiveSubscribed ?? false))) {
+      _receiveHandler = receiveHandler;
+      final attempt = _attempt;
+      if (_connected && attempt != null) _dispatchReceivedMessages(attempt);
+      return Future.value();
+    }
     final topic = switch (kind) {
       .twinGet => r'$iothub/twin/GET/?$rid=',
       .twinPatch => r'$iothub/twin/PATCH/properties/reported/?$rid=',
@@ -228,7 +270,10 @@ final class InternalClient {
       .methodResponse =>
         '${r'$iothub/methods/res/'}${methodResponse!.status}'
             '/?${r'$rid='}${escapeDataString(methodRequestId!)}',
-      .open || .desiredSubscription || .methodSubscription => null,
+      .open ||
+      .desiredSubscription ||
+      .methodSubscription ||
+      .receiveSubscription => null,
     };
     if (topic != null) {
       try {
@@ -247,8 +292,7 @@ final class InternalClient {
               utf8.encode(topic).length +
               (kind.isTwin ? 36 : 0) +
               8;
-    if (_pending.length >= maxPending ||
-        _pendingBytes + size > maxPendingBytes) {
+    if (pendingCount >= maxPending || _pendingBytes + size > maxPendingBytes) {
       return Future.error(OperationFailure(.capacity, .notSubmitted));
     }
     if (_recoveryStopped) {
@@ -277,6 +321,7 @@ final class InternalClient {
       ),
       desiredCallback: desiredCallback,
       methodRegistration: methodRegistration,
+      receiveHandler: receiveHandler,
     );
     _pending.add(operation);
     _pendingBytes += size;
@@ -290,6 +335,10 @@ final class InternalClient {
       _processMethodRegistrations();
       if (operation.completion.isCompleted) return operation.completion.future;
     }
+    if (kind == .receiveSubscription) {
+      _processReceiveRegistrations();
+      if (operation.completion.isCompleted) return operation.completion.future;
+    }
     if (_connected) {
       _flush();
     } else if (_retry == null) {
@@ -301,7 +350,8 @@ final class InternalClient {
   bool _hasReservation(_Operation operation) =>
       operation.packetId != null ||
       identical(_attempt?.desiredAction?.operation, operation) ||
-      identical(_attempt?.methodAction?.operation, operation);
+      identical(_attempt?.methodAction?.operation, operation) ||
+      identical(_attempt?.receiveAction?.operation, operation);
 
   void _release(_Operation operation) {
     _clearTwinRequest(operation);
@@ -310,6 +360,9 @@ final class InternalClient {
       _pendingBytes -= operation.size;
       if (operation.kind == .methodSubscription) {
         scheduleMicrotask(_processMethodRegistrations);
+      }
+      if (operation.kind == .receiveSubscription) {
+        scheduleMicrotask(_processReceiveRegistrations);
       }
     }
     _packets.remove(operation.packetId);
@@ -405,6 +458,19 @@ final class InternalClient {
           if (!identical(_attempt, attempt)) break;
           final publish = message.payload as MqttPublishMessage;
           try {
+            final isC2d = message.topic.startsWith(_receivePrefix);
+            if (!_retainIncoming(
+              attempt,
+              message.topic,
+              publish,
+              isC2d: isC2d,
+            )) {
+              break;
+            }
+            if (isC2d) {
+              _dispatchReceivedMessages(attempt);
+              continue;
+            }
             if (message.topic.startsWith(_methodPrefix)) {
               _receiveMethod(attempt, message.topic, publish);
               continue;
@@ -415,7 +481,7 @@ final class InternalClient {
               _receiveTwin(message.topic, publish.payload.message);
             }
             if (identical(_attempt, attempt)) {
-              transport.acknowledgeQos1Message(publish);
+              _ackIncoming(attempt, publish);
             }
           } catch (_) {
             // A malformed patch or synchronous callback failure must not leak
@@ -431,6 +497,8 @@ final class InternalClient {
           _completeDesiredAction(attempt, subscribed: true);
         } else if (topic == _methodTopic) {
           _completeMethodAction(attempt, subscribed: true);
+        } else if (topic == _receiveTopic) {
+          _completeReceiveAction(attempt, subscribed: true);
         } else if (topic == r'$iothub/twin/res/#') {
           _restoreSubscriptions(attempt);
         }
@@ -441,6 +509,8 @@ final class InternalClient {
           _completeDesiredAction(attempt, subscribed: false);
         } else if (topic == _methodTopic) {
           _completeMethodAction(attempt, subscribed: false);
+        } else if (topic == _receiveTopic) {
+          _completeReceiveAction(attempt, subscribed: false);
         }
       };
       transport.onSubscribeFail = (_) {
@@ -491,6 +561,8 @@ final class InternalClient {
       _startDesiredAction(attempt, subscribe: true);
     } else if (_methodsEnabled && !attempt.methodsSubscribed) {
       _startMethodAction(attempt, subscribe: true);
+    } else if (_receiveEnabled && !attempt.receiveSubscribed) {
+      _startReceiveAction(attempt, subscribe: true);
     } else {
       _connectedReady(attempt);
     }
@@ -554,12 +626,16 @@ final class InternalClient {
   void _flush() {
     final attempt = _attempt!;
     _processMethodRegistrations();
+    _processReceiveRegistrations();
     for (final operation in _pending.toList()) {
       if (!_connected || !identical(_attempt, attempt)) break;
       if (operation.completion.isCompleted || operation.packetId != null) {
         continue;
       }
-      if (operation.kind == .methodSubscription) continue;
+      if (operation.kind == .methodSubscription ||
+          operation.kind == .receiveSubscription) {
+        continue;
+      }
       if (operation.kind == .desiredSubscription) {
         if (attempt.desiredAction != null) continue;
         final subscribe = operation.desiredCallback != null;
@@ -616,6 +692,10 @@ final class InternalClient {
         attempt.methodAction == null &&
         attempt.methodsSubscribed != _methodsEnabled) {
       _startMethodAction(attempt, subscribe: _methodsEnabled);
+    }
+    if (_connected && identical(_attempt, attempt)) {
+      _maintainReceiveSubscription(attempt);
+      _dispatchReceivedMessages(attempt);
     }
   }
 
@@ -828,7 +908,7 @@ final class InternalClient {
   void _ackMethodRequest(_Attempt attempt, MqttPublishMessage? publish) {
     if (publish == null || !identical(_attempt, attempt)) return;
     try {
-      attempt.transport.acknowledgeQos1Message(publish);
+      _ackIncoming(attempt, publish);
     } catch (_) {
       _lost(attempt);
     }
@@ -906,6 +986,8 @@ final class InternalClient {
     attempt.deadline?.cancel();
     attempt.desiredAction?.deadline?.cancel();
     attempt.methodAction?.deadline?.cancel();
+    attempt.receiveAction?.deadline?.cancel();
+    _retireIncoming(attempt);
     unawaited(attempt.subscription?.cancel());
     unawaited(attempt.updates?.cancel());
     attempt.transport.retire();
@@ -948,6 +1030,10 @@ final class InternalClient {
       operation.completion.fail(reason);
       _release(operation);
     }
+    for (final receiver in _receivers.toList()) {
+      receiver.fail(reason);
+      _releaseReceiver(receiver);
+    }
     _changeConnectionStatus(.disconnected, statusReason);
   }
 
@@ -978,6 +1064,7 @@ final class InternalClient {
     _desiredCallback = null;
     _methodHandlers.clear();
     _defaultMethodHandler = null;
+    _receiveHandler = null;
     _retry?.cancel();
     _retry = null;
     _authenticationDeadline?.cancel();
@@ -1001,6 +1088,12 @@ final class _Attempt(final MqttTransport transport) {
   _DesiredAction? desiredAction;
   bool methodsSubscribed = false;
   _MethodAction? methodAction;
+  bool receiveSubscribed = false;
+  bool pollingRequested = false;
+  bool dispatchingMessages = false;
+  _ReceiveAction? receiveAction;
+  final incoming = <MqttPublishMessage, _Incoming>{};
+  int incomingBytes = 0;
 }
 
 final class _DesiredAction(final bool subscribe, final _Operation? operation) {
@@ -1023,6 +1116,7 @@ enum _OperationKind {
   twinPatch,
   desiredSubscription,
   methodSubscription,
+  receiveSubscription,
   methodResponse;
 
   bool get isTwin => this == twinGet || this == twinPatch;
@@ -1036,6 +1130,7 @@ final class _Operation(
   final PendingOperation<TwinProperties?> completion, {
   final DesiredPropertyUpdateCallback? desiredCallback,
   final _MethodRegistration? methodRegistration,
+  final ReceiveMessageHandler? receiveHandler,
 }) {
   int? packetId;
   String? requestId;

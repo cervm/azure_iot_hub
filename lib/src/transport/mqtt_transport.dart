@@ -68,6 +68,17 @@ final class MqttTransport extends MqttClient {
   @override
   void checkCredentials(String? username, String? password) {}
 
+  /// Acknowledges one queued QoS 1 delivery, including repeated packet IDs.
+  ///
+  /// The client owns arrival order. mqtt_client's manual-ACK map has only one
+  /// entry per ID, so its acknowledgement method cannot complete both an original
+  /// delivery and a duplicate. Send each PUBACK through our owned wire instead.
+  void acknowledgeIncomingQos1(MqttPublishMessage message) {
+    final id = message.variableHeader!.messageIdentifier;
+    _handler.sendMessage(MqttPublishAckMessage().withMessageIdentifier(id));
+    publishingManager?.awaitingManualAcknowledge.remove(id);
+  }
+
   void retire() {
     if (_retired) return;
     _retired = true;

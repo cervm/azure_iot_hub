@@ -6,6 +6,7 @@ import 'dart:io';
 
 import 'authentication/iot_hub_connection_string.dart';
 import 'cancellation.dart';
+import 'cloud_to_device_message.dart';
 import 'connection_status.dart';
 import 'direct_method.dart';
 import 'internal_client.dart';
@@ -13,7 +14,7 @@ import 'telemetry_message.dart';
 import 'transport/mqtt_transport_type.dart';
 import 'twin.dart';
 
-/// An Azure IoT Hub device client for telemetry, twins and direct methods.
+/// An Azure IoT Hub device client for messages, twins and direct methods.
 ///
 /// Operations open the connection implicitly and retry transient failures within
 /// one finite deadline, including when a cancellation token is supplied. The
@@ -41,6 +42,9 @@ final class DeviceClient {
   /// and must be positive.
   /// Direct-method calls have separate incoming count and byte budgets with these
   /// same limits. Their responses share the outgoing pending-operation budget.
+  /// Received messages and deferred MQTT acknowledgements share another incoming
+  /// budget with these limits. Overflow retires the connection without completing
+  /// excess messages, allowing the hub to redeliver unacknowledged QoS 1 messages.
   DeviceClient.fromConnectionString(
     String connectionString, {
     MqttTransportType transport = .tcp,
@@ -134,6 +138,47 @@ final class DeviceClient {
     TelemetryMessage message, {
     CancellationToken? cancellationToken,
   }) => _client.sendEvent(message, cancellationToken: cancellationToken);
+
+  /// Waits for one cloud-to-device message, which requires explicit [complete].
+  ///
+  /// Returns `null` when [timeout] expires or a receive handler is registered.
+  /// The positive timeout defaults to the client's operation timeout and includes
+  /// connection setup and retries. Caller cancellation throws [OperationFailure].
+  /// Concurrent receive calls share the pending-operation count limit.
+  Future<CloudToDeviceMessage?> receive({
+    Duration? timeout,
+    CancellationToken? cancellationToken,
+  }) => _client.receive(timeout: timeout, cancellationToken: cancellationToken);
+
+  /// Registers a cloud-to-device callback; `null` removes it and unsubscribes.
+  ///
+  /// Registration waits for SUBACK; removal clears the handler locally before
+  /// waiting for UNSUBACK. Reconnect restores registered callbacks. Returning
+  /// does not acknowledge a message: call [complete] after processing it.
+  /// Application futures are not awaited, just as with desired-property callbacks.
+  /// The application owns asynchronous errors, timeouts and completion order.
+  Future<void> setReceiveMessageHandler(
+    ReceiveMessageHandler? handler, {
+    CancellationToken? cancellationToken,
+  }) => _client.setReceiveMessageHandler(
+    handler,
+    cancellationToken: cancellationToken,
+  );
+
+  /// Acknowledges [message] after earlier MQTT deliveries can be acknowledged.
+  ///
+  /// Complete messages in receive order. Out-of-order, repeated, foreign-client
+  /// or retired-connection completions fail with [OperationFailureReason.protocol].
+  /// The queue remains intact after an invalid completion. MQTT QoS 0 messages
+  /// cannot be explicitly completed. MQTT offers no abandon or reject operation.
+  ///
+  /// Success means PUBACK was submitted locally; MQTT does not acknowledge a
+  /// PUBACK. Loss of that packet can still cause redelivery. Waiting behind other
+  /// inbound work uses the normal operation timeout and supports cancellation.
+  Future<void> complete(
+    CloudToDeviceMessage message, {
+    CancellationToken? cancellationToken,
+  }) => _client.complete(message, cancellationToken: cancellationToken);
 
   /// Retrieves the device's desired and reported properties.
   ///

@@ -30,6 +30,11 @@
   C# subscription-flag defect by agreement.
 - Follow C# MQTT SAS renewal: refresh cached credentials when requested within
   the renewal window; do not schedule proactive disconnects.
+- Follow C# C2D polling/callback dispatch and explicit ordered completion. Reject
+  invalid completion without consuming earlier entries; defer automatic PUBACKs
+  behind unfinished messages. Bound retained incoming messages and retire on
+  overflow without acknowledging excess C2D data. Preserve null versus empty
+  property values. These are agreed protocol corrections and resource limits.
 - Follow C# direct-method dispatch with named/default async handlers and byte
   payloads. The application owns handler timeouts. Bound incoming calls separately
   using the existing count/byte limits; overload returns 503 when response capacity
