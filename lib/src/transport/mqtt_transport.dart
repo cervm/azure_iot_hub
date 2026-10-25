@@ -238,7 +238,9 @@ final class _ConnectionHandler extends MqttConnectionHandlerBase {
     final reason = error is TransportFailure
         ? error
         : TransportFailure(switch (error) {
-            HandshakeException() => .tls,
+            // TLS 1.3 client-certificate rejection can arrive after Dart has
+            // completed the handshake and surface as a plain TlsException.
+            TlsException() => .tls,
             FormatException() => .protocol,
             _ => .network,
           });

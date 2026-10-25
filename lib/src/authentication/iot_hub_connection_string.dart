@@ -16,7 +16,7 @@ typedef SasTokenProvider = Future<String> Function(
   int suggestedTimeToLiveSeconds,
 );
 
-/// The internal connection-string representation for device SAS authentication.
+/// The internal device identity and authentication configuration.
 final class IotHubConnectionString {
   const IotHubConnectionString._({
     required this.hostName,
@@ -26,6 +26,7 @@ final class IotHubConnectionString {
     this.sharedAccessKeyName,
     this.sharedAccessSignature,
     this.tokenProvider,
+    this.usingX509 = false,
   });
 
   /// Parses supported device credentials using C# connection-string semantics.
@@ -61,7 +62,9 @@ final class IotHubConnectionString {
     }
     if (fields['x509']?.toLowerCase() == 'true' ||
         fields['x509cert']?.toLowerCase() == 'true') {
-      throw UnsupportedError('X.509 credentials are not supported.');
+      throw UnsupportedError(
+        'Use DeviceClient.withX509 for certificate authentication.',
+      );
     }
 
     // C# treats an empty key as absent when selecting SAS authentication.
@@ -119,6 +122,25 @@ final class IotHubConnectionString {
     );
   }
 
+  /// Creates a device identity for transport-level certificate authentication.
+  factory IotHubConnectionString.withX509({
+    required String hostName,
+    required String deviceId,
+    String? gatewayHostName,
+  }) {
+    _validate(hostName, 'HostName', _hostNamePattern);
+    _validate(deviceId, 'DeviceId', _deviceIdPattern);
+    if (gatewayHostName != null && gatewayHostName.isNotEmpty) {
+      _validate(gatewayHostName, 'GatewayHostName', _hostNamePattern);
+    }
+    return ._(
+      hostName: hostName,
+      deviceId: deviceId,
+      gatewayHostName: gatewayHostName,
+      usingX509: true,
+    );
+  }
+
   final String hostName;
   final String deviceId;
   final String? gatewayHostName;
@@ -126,6 +148,7 @@ final class IotHubConnectionString {
   final String? sharedAccessKeyName;
   final SharedAccessSignature? sharedAccessSignature;
   final SasTokenProvider? tokenProvider;
+  final bool usingX509;
 
   /// The network destination, which can differ from the SAS audience.
   String get connectionHostName {
@@ -141,6 +164,9 @@ final class IotHubConnectionString {
     required DateTime now,
     Duration timeToLive = const .new(hours: 1),
   }) {
+    if (usingX509) {
+      throw StateError('X.509 credentials do not use SAS tokens.');
+    }
     if (tokenProvider != null) {
       throw StateError(
         'Provider credentials require asynchronous acquisition.',

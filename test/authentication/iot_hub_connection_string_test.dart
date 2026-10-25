@@ -142,10 +142,57 @@ void main() {
     }
   });
 
-  test('unsupported module and X.509 credentials cannot become device SAS', () {
+  test('module and X.509 connection strings cannot become device SAS', () {
     for (final property in ['ModuleId=module', 'X509Cert=true', 'x509=TrUe']) {
       expect(() => _parse('$_connection;$property'), throwsUnsupportedError);
     }
+  });
+
+  test(
+    'X509 identity has no SAS credentials and preserves gateway routing',
+    () {
+      final identity = IotHubConnectionString.withX509(
+        hostName: _host,
+        deviceId: 'device1',
+        gatewayHostName: 'gateway',
+      );
+      expect(identity.usingX509, isTrue);
+      expect(identity.hostName, _host);
+      expect(identity.connectionHostName, 'gateway');
+      expect(identity.sharedAccessKey, isNull);
+      expect(identity.sharedAccessKeyName, isNull);
+      expect(identity.sharedAccessSignature, isNull);
+      expect(identity.tokenProvider, isNull);
+      expect(() => identity.createSasToken(now: _now), throwsStateError);
+      expect(identity.toString(), 'IotHubConnectionString(<redacted>)');
+    },
+  );
+
+  test('X509 identity keeps the existing redacted validation', () {
+    for (final (host, device, gateway) in [
+      ('', 'device1', null),
+      (_host, '', null),
+      (_host, 'secret/device', null),
+      (_host, 'device1', 'invalid/gateway/'),
+    ]) {
+      expect(
+        () => IotHubConnectionString.withX509(
+          hostName: host,
+          deviceId: device,
+          gatewayHostName: gateway,
+        ),
+        throwsA(
+          isA<FormatException>()
+              .having((e) => e.source, 'source', isNull)
+              .having(
+                (e) => e.toString(),
+                'redaction',
+                isNot(contains('secret')),
+              ),
+        ),
+      );
+    }
+    expect(_parse(_connection).usingX509, isFalse);
   });
 
   test(

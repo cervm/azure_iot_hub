@@ -26,7 +26,7 @@ validation coverage and remaining gaps.
 | Connection-status callbacks | Implemented | Connection, recovery and shutdown notifications |
 | Cancellation and timeouts | Implemented | SDK-owned tokens; finite timeout across retries |
 | Cloud-to-device messages | Implemented | Polling or callbacks, properties and explicit ordered completion |
-| X.509 authentication | Not implemented | |
+| X.509 authentication | Implemented | MQTT/TLS with an application-configured `SecurityContext`; X.509 WebSockets not yet supported |
 | File upload | Not implemented | |
 | Module clients | Not implemented | |
 | IoT Plug and Play | Not implemented | No model ID or component support |
@@ -61,6 +61,13 @@ Operations connect implicitly; `open()` is also available. Select
 accepts an asynchronous SAS provider. Tokens are cached and refreshed when a
 connection requests eligible credentials, following C#; renewal does not schedule
 disconnects. See the [authentication notes](docs/upstream.md#internal-authentication-coverage).
+
+For certificate authentication, use `DeviceClient.withX509(hostName: ..., deviceId:
+..., securityContext: context)`. Prepare the Dart `SecurityContext` with trusted
+server roots, the device certificate chain and its private key before construction.
+The application owns certificate loading and renewal. See the
+[X.509 contract](docs/upstream.md#x509-authentication) and
+[live test setup](docs/testing.md#optional-x509-test).
 
 `getTwin()` returns `Twin` with `twin.properties.desired` and `reported` maps.
 `updateReportedProperties` sends a JSON patch; null values delete properties.

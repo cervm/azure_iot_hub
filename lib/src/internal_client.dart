@@ -44,7 +44,7 @@ final class InternalClient {
     int Function(int)? randomInt,
   }) : port = port ?? transport.defaultPort,
        _randomInt = randomInt ?? Random().nextInt,
-       _sasTokens = .new(credentials, now: now) {
+       _sasTokens = credentials.usingX509 ? null : .new(credentials, now: now) {
     if (operationTimeout <= Duration.zero ||
         connectionTimeout <= Duration.zero ||
         twinResponseTimeout <= Duration.zero ||
@@ -54,6 +54,16 @@ final class InternalClient {
         this.port < 1 ||
         this.port > 65535) {
       throw ArgumentError('Invalid timeout, capacity or port.');
+    }
+    if (credentials.usingX509) {
+      if (securityContext == null) {
+        throw ArgumentError('X.509 authentication requires a SecurityContext.');
+      }
+      if (transport != .tcp) {
+        throw UnsupportedError(
+          'X.509 authentication currently requires MQTT/TLS.',
+        );
+      }
     }
   }
 
@@ -70,7 +80,7 @@ final class InternalClient {
   final Schedule schedule;
   final DateTime Function() now;
   final int Function(int) _randomInt;
-  final SasTokenCache _sasTokens;
+  final SasTokenCache? _sasTokens;
   final _shutdown = cancellation.CancellationToken();
   final _pending = <_Operation>{};
   final _packets = <int, _Operation>{};
@@ -399,7 +409,7 @@ final class InternalClient {
     });
     _authenticationDeadline = deadline;
     try {
-      final token = await _sasTokens.getToken();
+      final token = await _sasTokens?.getToken();
       if (_closed || timedOut) return;
       final transport = MqttTransport(
         credentials.connectionHostName,
@@ -424,7 +434,7 @@ final class InternalClient {
         '${credentials.hostName}/${credentials.deviceId}/?'
         'api-version=2020-09-30&DeviceClientType='
         '${escapeDataString('azure-iot-hub-dart/0.1.0-dev.1')}',
-        token.value,
+        token?.value,
       );
       if (_closed || !identical(_attempt, attempt)) return;
       if (status?.state != .connected) {

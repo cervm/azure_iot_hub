@@ -107,6 +107,48 @@ final class DeviceClient {
          securityContext: securityContext,
        );
 
+  /// Creates a client authenticated by the certificate in [securityContext].
+  ///
+  /// Configure the context with a client certificate chain, its private key and
+  /// trusted server roots before constructing the client. The application owns
+  /// loading and renewal; the client retains the context for reconnects. Keep it
+  /// unchanged while the client is in use. The SDK does not install certificates
+  /// into the operating system's certificate store.
+  ///
+  /// Certificate loading errors come from Dart's [SecurityContext] APIs. An empty
+  /// context is not inspected at construction; missing or rejected credentials
+  /// fail during connection. MQTT CONNECT contains no SAS password.
+  ///
+  /// Only [MqttTransportType.tcp] is supported for X.509; selecting WebSockets
+  /// throws [UnsupportedError]. Other options follow [DeviceClient.fromConnectionString].
+  DeviceClient.withX509({
+    required String hostName,
+    required String deviceId,
+    required SecurityContext securityContext,
+    String? gatewayHostName,
+    MqttTransportType transport = .tcp,
+    Duration operationTimeout = const .new(minutes: 4),
+    Duration connectionTimeout = const .new(seconds: 60),
+    Duration twinResponseTimeout = const .new(seconds: 60),
+    int maxPending = 16,
+    int maxPendingBytes = 4 * 1024 * 1024,
+    int? port,
+  }) : _client = .new(
+         .withX509(
+           hostName: hostName,
+           deviceId: deviceId,
+           gatewayHostName: gatewayHostName,
+         ),
+         securityContext: securityContext,
+         transport: transport,
+         operationTimeout: operationTimeout,
+         connectionTimeout: connectionTimeout,
+         twinResponseTimeout: twinResponseTimeout,
+         maxPending: maxPending,
+         maxPendingBytes: maxPendingBytes,
+         port: port,
+       );
+
   final InternalClient _client;
 
   /// Whether the connection is currently ready for operations.

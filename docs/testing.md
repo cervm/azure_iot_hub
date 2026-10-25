@@ -13,14 +13,16 @@ and WSS peers cover telemetry, twins, authentication, cancellation, retries,
 deadlines, direct methods, C2D messages, connection status and bounded pending work.
 Public API tests use only the package's SDK import. See the
 [C# source/test mappings](upstream.md).
+X.509 tests additionally require mutual TLS, verify the client chain and MQTT
+password omission, and cover rejected credentials and reconnects.
 
 ## Live validation status
 
 Live tests passed on 24 October 2026 for TLS telemetry, reported-property updates
 and twin retrieval, desired callbacks before and after re-registration, and WSS
 telemetry/twin retrieval. These results predate the public API migration; the
-telemetry/twin tests have not been rerun through the public API. Connection-status
-notifications have controlled test coverage only.
+SAS telemetry/twin tests have not been rerun through the public API.
+Connection-status notifications have controlled test coverage only.
 
 On 25 October 2026, the user reported the manual direct-method check worked through
 the public API over MQTT/TLS: `getStatus` returned 200 with `{"ready":true}`, and an
@@ -31,6 +33,11 @@ On 25 October 2026, the user reported the manual C2D test passed using the defau
 MQTT/TLS configuration: polling and callback delivery both verified the expected
 body and submitted explicit completion through the public API. Live WSS C2D,
 service-side completion feedback and reconnect redelivery remain unverified.
+
+On 25 October 2026, the X.509 integration test passed on macOS using a self-signed
+device certificate registered by thumbprint: telemetry was acknowledged and the
+twin retrieved through the public API over MQTT/TLS. Live CA-signed certificate
+chains and X.509 reconnect remain unverified.
 
 Linux ARM64, live reconnect, SAS expiry/renewal and long-running resource usage
 remain unverified. See the [transport](telemetry-transport.md#validation-and-limits)
@@ -112,3 +119,28 @@ Set `AZURE_IOT_TEST_TRANSPORT=webSocket` to repeat over WSS. This checks deliver
 and local PUBACK submission, not service-side feedback or reconnect redelivery.
 Failed/interrupted tests can leave messages queued at the hub. Avoid sending
 additional messages while a step is pending.
+
+## Optional X.509 test
+
+Use your own device certificate and private key; repository fixtures are public
+test data. Register a dedicated X.509 device in IoT Hub whose ID matches the
+certificate's subject CN, using its thumbprint or a verified issuing CA as
+appropriate. See Microsoft's [certificate authentication guide](https://learn.microsoft.com/en-us/azure/iot-hub/authenticate-authorize-x509).
+
+Configure these environment variables:
+
+| Variable | Value |
+| --- | --- |
+| `AZURE_IOT_TEST_X509_HOST_NAME` | Hub hostname, such as `name.azure-devices.net` |
+| `AZURE_IOT_TEST_X509_DEVICE_ID` | Registered device ID |
+| `AZURE_IOT_TEST_X509_CERTIFICATE_PATH` | PEM device certificate followed by any intermediate certificates |
+| `AZURE_IOT_TEST_X509_PRIVATE_KEY_PATH` | Matching PEM private key file |
+| `AZURE_IOT_TEST_X509_PRIVATE_KEY_PASSWORD` | Optional password for an encrypted key; supply securely |
+
+```sh
+AZURE_IOT_RUN_X509_INTEGRATION=1 fvm dart test test/integration/x509_test.dart --reporter expanded
+```
+
+The test sends one telemetry event and retrieves the twin using the public X.509
+constructor over MQTT/TLS. It uses platform server roots and makes no twin changes.
+Certificate files stay outside this repository. No SAS connection string is used.

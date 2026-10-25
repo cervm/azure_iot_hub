@@ -30,6 +30,10 @@
   C# subscription-flag defect by agreement.
 - Follow C# MQTT SAS renewal: refresh cached credentials when requested within
   the renewal window; do not schedule proactive disconnects.
+- Use a caller-prepared `SecurityContext` for X.509 over MQTT/TLS. Keep certificate
+  loading, renewal and context ownership with the application; retain chains in
+  the context instead of installing them into the OS store. X.509 WebSockets are
+  explicitly unsupported until their certificate negotiation is verified.
 - Follow C# C2D polling/callback dispatch and explicit ordered completion. Reject
   invalid completion without consuming earlier entries; defer automatic PUBACKs
   behind unfinished messages. Bound retained incoming messages and retire on

@@ -4,6 +4,7 @@
   pinned C# SDK's behaviour for supported features.
 - Support SAS authentication with shared keys, supplied tokens and asynchronous
   token providers, including credential caching and refresh on reconnect.
+- Support X.509 authentication over MQTT/TLS with a prepared Dart `SecurityContext`.
 - Support MQTT over TLS and secure WebSockets, using a pinned `mqtt_client` fork
   that prevents reuse of in-flight packet identifiers.
 - Send QoS 1 telemetry with application properties and supported message metadata.

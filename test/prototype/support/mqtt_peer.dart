@@ -21,11 +21,16 @@ final class MqttPeerServer {
     );
   }
 
-  static Future<MqttPeerServer> startTls(SecurityContext context) async {
+  static Future<MqttPeerServer> startTls(
+    SecurityContext context, {
+    bool requireClientCertificate = false,
+  }) async {
     final server = await SecureServerSocket.bind(
       InternetAddress.loopbackIPv4,
       0,
       context,
+      requestClientCertificate: requireClientCertificate,
+      requireClientCertificate: requireClientCertificate,
     );
     return MqttPeerServer._(
       server.map(MqttPeer.new),
@@ -100,6 +105,11 @@ final class MqttPeer {
 
   final Socket? _socket;
   final WebSocket? _webSocket;
+
+  X509Certificate? get peerCertificate {
+    final socket = _socket;
+    return socket is SecureSocket ? socket.peerCertificate : null;
+  }
 
   Future<void> sendBytes(List<int> bytes) async {
     if (_webSocket case final socket?) {
