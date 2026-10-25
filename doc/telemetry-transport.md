@@ -98,26 +98,9 @@ write and stalled HTTP upgrade cleanup. Late native setup cleanup runs over both
 transports. A 70-minute virtual-clock test keeps one active connection without
 scheduled renewal disconnects; its local peer does not enforce service-side token expiry.
 
-Controlled tests validated on macOS ARM64 with FVM Dart 3.13.5. Linux ARM64, native
-DNS/TCP blackholes and long-running resource usage remain unverified. The late-DNS test
-controls task delivery; it does not emulate an operating-system DNS blackhole.
-The test certificate expires in October 2027; regeneration is documented beside it.
-
-On 24 October 2026, the user ran the opt-in integration test against Azure IoT Hub
-and reported `+1: All tests passed!`. This confirms SAS authentication, MQTT/TLS
-connection and one QoS 1 publish through PUBACK. Live reconnect, token renewal and
-downstream routing/consumption require separate validation.
-
-The previous telemetry result predates the connection-time twin subscription.
-The user's subsequent successful live PATCH test covers that subscription,
-reported-property updates, twin retrieval and cleanup; see [twin notes](twins.md).
-On 24 October 2026, the user also ran `test/integration/websocket_test.dart` and
-reported `+1: All tests passed!`. This confirms WSS setup, SAS authentication,
-twin-response subscription, telemetry PUBACK and twin GET on port 443. The test
-passed after adding `iothub-no-client-cert=true`; the preceding run disconnected
-while awaiting CONNACK. The underlying certificate-negotiation mechanism was not
-captured, so it remains an inference. Live WSS reconnect and long-running recovery
-remain unverified.
+See [testing](testing.md#validation-status) for live results and remaining
+platform/recovery coverage. Test certificate expiry and regeneration are documented
+with the [fixtures](../test/transport/fixtures/README.md).
 
 Controlled regressions cover mixed-case hostnames and independently decode the
 outgoing CONNECT frame to verify masking and the complete MQTT payload.
@@ -125,6 +108,4 @@ The internal client retains a bounded diagnostic snapshot:
 attempt count, connection stage, failure category, HTTP status and WebSocket close
 code. It excludes endpoints, device identities, credentials, response bodies,
 WebSocket close reasons and raw exception text.
-The public device API keeps these mutable diagnostics internal. Live tests now use
-the public import; that migration has not yet been rerun against Azure.
-The live SAS expiry test is deferred.
+The public device API keeps these mutable diagnostics internal.

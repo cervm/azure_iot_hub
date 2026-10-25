@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license; see third_party/azure-iot-sdk-csharp-LICENSE.
 // Adapted from AuthenticationWithTokenRefresh and DeviceAuthenticationWithTokenRefresh.
-// See docs/upstream.md for the pinned source and test mapping.
+// See doc/upstream.md for the pinned source and test mapping.
 import 'dart:async';
 import 'dart:typed_data';
 

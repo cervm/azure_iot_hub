@@ -1,13 +1,16 @@
 name: azure_iot_hub
-description: A standalone Azure IoT Hub device SDK for native Dart runtimes.
+description: >-
+  A native Dart Azure IoT Hub device SDK with MQTT/TLS and WebSockets,
+  SAS and X.509 authentication, telemetry, twins, direct methods and C2D messages.
 version: 0.1.0-dev.1
+repository: https://github.com/cervm/azure_iot_hub
 publish_to: none
 
 environment:
   sdk: ^3.13.5
 
 dependencies:
-  cancellation_token: 2.0.1
+  cancellation_token: ^2.0.1
   crypto: ^3.0.7
   event_bus: ^2.0.1
   mqtt_client:

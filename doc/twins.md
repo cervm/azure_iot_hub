@@ -46,21 +46,9 @@ early-response payload bytes also consume that budget. Cancellation before PUBAC
 retains the MQTT reservation until acknowledgement or retirement; after PUBACK it
 releases the response waiter immediately. Closing releases all waiters and timers.
 
-Controlled TLS and WSS tests cover adapted C# happy paths, pre-cancellation,
-service failure and timeout cases for GET and PATCH, plus ordering, correlation,
-retry, cancellation, serialization and capacity regressions. The opt-in
-`test/integration/twin_test.dart`
-reads a real device twin. `test/integration/reported_properties_test.dart` writes a
-unique `sdkPatchTest_...` property, verifies nested merge/deletion, and deletes the
-property in `finally`. Failed network cleanup may leave that test property behind;
-reported-property versions still advance after successful cleanup.
-
-On 24 October 2026, the user ran `reported_properties_test.dart` against Azure
-and supplied `00:01 +1: All tests passed!`. This validates reported-property
-creation, nested merge/deletion, twin retrieval and final cleanup. A post-test
-twin snapshot showed reported `$version` 4 and no test property. The separate
-read-only twin test has not been reported as run; twin retrieval is covered by
-the successful PATCH test. Live reconnect and expiry/renewal remain unverified.
+Controlled TLS and WSS tests cover the adapted C# GET/PATCH cases, response
+ordering, correlation, retries, cancellation and capacity. See [testing](testing.md)
+for live coverage and opt-in test instructions.
 
 ## Desired-property callbacks
 
@@ -95,23 +83,10 @@ uses the connection deadline.
 therefore skip SUBSCRIBE. Dart tracks acknowledged subscription state and subscribes
 again after removal. Rejected SUBACKs follow the existing protocol-error policy.
 
-Controlled TLS and WSS tests adapt C# registration, replacement, removal, callback
-and cancellation/timeout cases. Additional cases cover reconnect without GET,
-repeated versions, asynchronous callback work, cancellation races, missing acknowledgements,
-callback failures and shutdown. The opt-in
-[`desired_properties_test.dart`](../test/integration/desired_properties_test.dart)
-prompts for two portal edits to verify delivery before and after callback removal
-and re-registration. It requires `AZURE_IOT_RUN_MANUAL_DESIRED=1`, independently of
-the automatic integration-test flag. The operator deletes the temporary desired
-property afterward by setting it to `null` in the portal and saving, following
-the [portal twin-editing instructions](https://learn.microsoft.com/en-us/azure/iot-hub/manage-device-twins#view-and-update-device-twins).
-This test does not exercise reconnect recovery.
-
-On 24 October 2026, the user ran the manual desired-property test against Azure
-and supplied `00:51 +1: All tests passed!`. Both requested patches arrived with
-integer versions, and the second version was greater than the first. This validates
-live delivery before and after callback removal and re-registration. Portal cleanup
-is manual and was not verified by the test; live reconnect remains unverified.
+Controlled tests cover registration, replacement, removal, cancellation,
+reconnect without GET, callback failures and shutdown. The
+[manual desired-property test](testing.md#manual-desired-property-test) verifies
+live delivery before and after re-registration.
 
 The [upstream mapping](upstream.md) records the pinned implementation. The wire contract is documented in Microsoft's
 [MQTT twin guide](https://learn.microsoft.com/en-us/azure/iot-hub/iot-mqtt-connect-to-iot-hub#update-device-twins-reported-properties).

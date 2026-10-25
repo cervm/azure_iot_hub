@@ -4,12 +4,12 @@ A standalone, pure-Dart Azure IoT Hub device SDK for native runtimes.
 
 In development: the public API is experimental and publishing is currently
 disabled. Behaviour follows the pinned stable C# device SDK; see the
-[compatibility reference](docs/upstream.md) for source/test mappings and intentional
+[compatibility reference](doc/upstream.md) for source/test mappings and intentional
 differences.
 
 ## Features
 
-Status describes the current implementation. See [testing](docs/testing.md) for
+Status describes the current implementation. See [testing](doc/testing.md) for
 validation coverage and remaining gaps.
 
 | Feature | Status | Details |
@@ -60,7 +60,7 @@ Operations connect implicitly; `open()` is also available. Select
 `transport: .webSocket` for WSS on port 443. `DeviceClient.withTokenProvider`
 accepts an asynchronous SAS provider. Tokens are cached and refreshed when a
 connection requests eligible credentials, following C#; renewal does not schedule
-disconnects. See the [authentication notes](docs/upstream.md#internal-authentication-coverage).
+disconnects. See the [authentication notes](doc/upstream.md#internal-authentication-coverage).
 
 For certificate authentication, use `DeviceClient.withX509(hostName: ..., deviceId:
 ..., securityContext: context)`. Prepare the Dart `SecurityContext` with trusted
@@ -69,47 +69,32 @@ The application owns certificate loading and renewal. For WebSockets on port 443
 select `transport: .webSocket` and explicitly set
 `context.allowLegacyUnsafeRenegotiation = true` on a dedicated IoT Hub context.
 The SDK never changes this setting; server certificate verification remains enabled.
-See the [X.509 contract](docs/upstream.md#x509-authentication) and
-[live test setup](docs/testing.md#optional-x509-test).
+See the [X.509 contract](doc/upstream.md#x509-authentication) and
+[live test setup](doc/testing.md#optional-x509-test).
 
-`getTwin()` returns `Twin` with `twin.properties.desired` and `reported` maps.
-`updateReportedProperties` sends a JSON patch; null values delete properties.
-`setDesiredPropertyUpdateCallback` receives patches and accepts null to unsubscribe.
-Applications own snapshot retrieval and version reconciliation. See the
-[twin notes](docs/twins.md).
+`getTwin()` returns `Twin` with desired and reported maps under `twin.properties`.
+Reported-property updates are JSON patches; desired callbacks deliver patches for
+the application to reconcile. See [twin operations](doc/twins.md).
 
-`setMethodHandler(name, handler)` registers an async direct-method handler;
-`setMethodDefaultHandler(handler)` provides a fallback. Return a `MethodResponse`
-with an integer status and optional JSON bytes. Passing null removes a handler.
-Handler execution is application-owned; registration and response sends use finite
-timeouts. See the [example](example/direct_methods_example.dart) and
-[method contract](docs/upstream.md#direct-methods).
+Direct methods use named/default async handlers returning `MethodResponse`.
+Cloud-to-device messages support polling and callbacks; call `complete(message)`
+after processing, in receive order. See the [direct-method example](example/direct_methods_example.dart)
+and [C2D contract](doc/upstream.md#cloud-to-device-messages).
 
-`receive()` waits for one cloud-to-device message; `setReceiveMessageHandler`
-registers a callback instead. Call `complete(message)` after processing, in receive
-order. Callback return does not acknowledge the message. Messages expose immutable
-payload bytes and application/system properties. See the
-[C2D contract](docs/upstream.md#cloud-to-device-messages) and
-[manual test](docs/testing.md#manual-cloud-to-device-test).
+Operations have a finite timeout, four minutes by default, covering retries and
+reconnect waits. Optional SDK-owned cancellation tokens cancel individual operations
+without stopping recovery. `OperationFailure` exposes `reason`, `delivery` and an
+optional twin response `statusCode`. `DeliveryState.unknown` means the operation may
+already have reached the hub, so retrying can duplicate its effects.
 
-Cancellation is optional: pass a `CancellationTokenSource`'s `token` and call
-`source.cancel()`. Every operation retains a finite timeout, four minutes by
-default, including reconnect waits. `OperationFailure` exposes `reason`, `delivery`
-and an optional twin response `statusCode`. `DeliveryState.unknown` means a failed
-operation may already have reached the hub; retrying can duplicate its effects.
-See the [public API contract](docs/upstream.md#public-device-api).
-
-`setConnectionStatusChangesHandler((status, reason) { ... })` observes connection,
-recovery and shutdown. Passing null removes the handler; registration does not
-replay the current state. Duplicate status/reason pairs are suppressed. Handler
-errors go to its registering Dart Zone, and the first `close()` always reports
-`disabled/clientClose`. See the [status contract](docs/upstream.md#connection-status-callbacks).
+Connection-status callbacks report connection, recovery and shutdown. `close()`
+permanently shuts down the client. See the [public API contract](doc/upstream.md#public-device-api).
 
 The [runnable example](example/azure_iot_hub_example.dart) reads
 `AZURE_IOT_DEVICE_CONNECTION_STRING`, sends telemetry and retrieves the twin:
 
 ```sh
-fvm dart run example/azure_iot_hub_example.dart
+dart run example/azure_iot_hub_example.dart
 ```
 
 ## Development
@@ -124,10 +109,16 @@ fvm dart test
 ```
 
 Normal test runs use local peers and skip real-hub tests. See
-[testing](docs/testing.md) for coverage, validation gaps and opt-in Azure tests.
+[testing](doc/testing.md) for coverage, validation gaps and opt-in Azure tests.
 
 The package currently depends on a pinned `mqtt_client`
-[fork](docs/mqtt-prototype.md#focused-dependency-fix) for packet-identifier handling.
+[fork](doc/upstream.md#mqtt-dependency) for packet-identifier handling.
 Implementation details and upstream test mappings are in the
-[transport notes](docs/telemetry-transport.md), [twin notes](docs/twins.md) and
-[C# compatibility reference](docs/upstream.md).
+[transport notes](doc/telemetry-transport.md), [twin notes](doc/twins.md) and
+[C# compatibility reference](doc/upstream.md).
+
+## License
+
+[MIT](LICENSE), copyright 2026 Marek Cervinka. Portions adapted from Microsoft's
+Azure IoT C# SDK retain their original copyright and
+[MIT licence](third_party/azure-iot-sdk-csharp-LICENSE).

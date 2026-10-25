@@ -2,7 +2,7 @@
 // Licensed under the MIT license; see third_party/azure-iot-sdk-csharp-LICENSE.
 // Adapted from the pinned C# SDK's IotHubConnectionStringBuilder,
 // CommonExtensionMethods.ToDictionary and DeviceAuthenticationWithSakRefresh.
-// See docs/upstream.md for the source mapping.
+// See doc/upstream.md for the source mapping.
 import 'shared_access_signature.dart';
 
 /// Acquires a SAS for [iotHub], using the suggested lifetime when appropriate.

@@ -18,33 +18,25 @@ both transports, and cover rejected credentials and reconnects. Local WebSocket
 peers request certificates during the initial TLS handshake; the opt-in live
 test verifies IoT Hub's later certificate negotiation.
 
-## Live validation status
+## Validation status
 
-Live tests passed on 24 October 2026 for TLS telemetry, reported-property updates
-and twin retrieval, desired callbacks before and after re-registration, and WSS
-telemetry/twin retrieval. These results predate the public API migration; the
-SAS telemetry/twin tests have not been rerun through the public API.
-Connection-status notifications have controlled test coverage only.
+Controlled tests run on macOS ARM64. Live checks as of 25 October 2026:
 
-On 25 October 2026, the user reported the manual direct-method check worked through
-the public API over MQTT/TLS: `getStatus` returned 200 with `{"ready":true}`, and an
-unregistered method returned 501. Direct methods over WSS, live overload handling
-and method subscription recovery remain covered by controlled tests only.
+| Coverage | Result |
+| --- | --- |
+| SAS telemetry and twin retrieval over TLS/WSS | Passed before the public API migration; repeat through the current API |
+| Reported-property updates and desired callbacks over TLS | Passed, including merge/deletion and callback re-registration |
+| Direct methods over TLS | Named handler returned 200; default handler returned 501 |
+| C2D messages over TLS | Polling and callback delivery passed with explicit completion submission |
+| X.509 telemetry and twin retrieval over TLS/WSS | Passed with a self-signed certificate registered by thumbprint; WSS used explicit renegotiation opt-in |
 
-On 25 October 2026, the user reported the manual C2D test passed using the default
-MQTT/TLS configuration: polling and callback delivery both verified the expected
-body and submitted explicit completion through the public API. Live WSS C2D,
-service-side completion feedback and reconnect redelivery remain unverified.
-
-On 25 October 2026, the X.509 integration test passed on macOS using a self-signed
-device certificate registered by thumbprint: telemetry was acknowledged and the
-twin retrieved through the public API over MQTT/TLS and secure WebSockets on port
-443. The WebSocket run used explicit TLS renegotiation opt-in on its dedicated
-context. Live CA-signed certificate chains and X.509 reconnect remain unverified.
-
-Linux ARM64, live reconnect, SAS expiry/renewal and long-running resource usage
-remain unverified. See the [transport](telemetry-transport.md#validation-and-limits)
-and [twin](twins.md) notes for details.
+Remaining validation: Linux ARM64, native DNS/TCP stalls, live reconnect and
+subscription restoration, SAS expiry/renewal, long-running resource usage, connection-status callbacks,
+WSS direct methods/C2D, method overload handling, C2D service-side completion
+feedback/redelivery and CA-signed certificate chains. Controlled tests cover the
+corresponding protocol and lifecycle paths where applicable.
+Controlled DNS tests inject late task completion; they do not reproduce an
+operating-system DNS stall.
 
 ## Optional Azure tests
 

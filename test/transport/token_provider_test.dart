@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license; see third_party/azure-iot-sdk-csharp-LICENSE.
 // Exercises C# token-refresh and error-pipeline behaviour with Dart lifecycle
-// races and the agreed finite operation deadlines. See docs/upstream.md.
+// races and the agreed finite operation deadlines. See doc/upstream.md.
 import 'dart:async';
 import 'dart:io';
 

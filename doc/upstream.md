@@ -14,7 +14,7 @@ Verified on 24 October 2026:
 
 ## Source/test map
 
-These are reference points for the SDK. Public API, prototype, authentication,
+These are reference points for the SDK. Public API, dependency, authentication,
 telemetry, WSS, twin, direct-method and connection-status coverage are listed below.
 
 | Behaviour | C# reference at the pinned commit | Dart coverage |
@@ -99,10 +99,8 @@ requires no separate disposal call.
 [Public API tests](../test/device_client_api_test.dart) use the package library to
 exercise telemetry, GET/PATCH, desired callbacks, SAS providers, cancellation,
 capacity and service failure status over controlled TLS and WSS peers. Lifecycle
-races remain covered by the existing deterministic internal suites. The live tests
-and [example](../example/azure_iot_hub_example.dart) now use the public import;
-the SAS telemetry/twin tests have not yet been rerun against a real hub. The later
-public direct-method example passed a user-run live check; see [direct methods](#direct-methods).
+races remain covered by the deterministic internal suites. Live validation results
+and remaining gaps are maintained in [testing](testing.md#validation-status).
 
 ## Connection-status callbacks
 
@@ -154,32 +152,35 @@ queue or additional timer is introduced.
 Dart-specific cases cover subscription recovery, terminal failures, handler Zones,
 reentrant send/close/replacement, slow providers, operation cancellation/deadlines,
 and late completion after shutdown. [Public API tests](../test/device_client_api_test.dart)
-verify exported registration, connection and close notifications. No live status
-callback or reconnect test has been run yet.
+verify exported registration, connection and close notifications.
 
-## Prototype coverage
+## MQTT dependency
 
-[mqtt_cancellation_test.dart](../test/prototype/mqtt_cancellation_test.dart) adapts
+The package pins the `mqtt_client` fork at
+[`e9baef8`](https://github.com/cervm/mqtt_client/commit/e9baef8c848f3ada77b1f02750adf479ab8b3f0d),
+based on 10.13.0. It prevents reuse of packet identifiers awaiting protocol
+completion, following [MQTT 3.1.1 §2.3.1](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718025)
+(MQTT-2.3.1-2 and MQTT-2.3.1-3). It preserves the original 1–32,767 range,
+`maxMessageIdentifier`, public singleton and normal allocation sequence.
+Exhaustion throws `StateError` before publish/unsubscribe submission; subscribe
+retains its existing null/failure behavior. Confirmed subscriptions retain their
+local map keys without reserving those IDs against later publishes.
+
+The fork's tests cover QoS 1/2, subscribe/unsubscribe, identifier exhaustion,
+acknowledgement reuse and client isolation. Rerun the
+[dependency regressions](../test/prototype/mqtt_cancellation_test.dart) when changing
+it. That test-only harness uses the original dependency transport; the SDK owns
+TLS/WebSocket setup and cleanup through its [transport adapters](telemetry-transport.md).
+
+The harness retains C#'s named
 `MqttTransportHandlerOpenAsyncTokenCancellationRequested` and
-`MqttTransportHandlerSendEventAsyncTokenCancellationRequested` from the pinned C#
-MQTT suite, retaining their names and pre-cancelled-token scenarios. The adapted
-tests carry Microsoft's copyright notice and the
-[upstream MIT licence](../third_party/azure-iot-sdk-csharp-LICENSE).
+`MqttTransportHandlerSendEventAsyncTokenCancellationRequested` cases, with Microsoft's
+copyright and [MIT licence](../third_party/azure-iot-sdk-csharp-LICENSE). Additional
+Dart tests cover deadlines, PUBACK completion, late callbacks, bounded pending work
+and packet-ID wrap. [Operation tests](../test/pending_operation_test.dart) cover
+shared tokens, shutdown isolation, listener cleanup and terminal races.
 
-Additional Dart tests cover the agreed timeout deviation, cancellation during
-connection/publishing, PUBACK completion, late/duplicate acknowledgements, bounded
-pending packets, reconnect without deadline reset, stale disconnect callbacks and
-shutdown. These are new tests, not claims of porting C# test coverage wholesale.
-See [prototype findings](mqtt-prototype.md) for the dependency fixes and remaining
-validation boundaries.
-
-The prototype now uses [PendingOperation](../lib/src/pending_operation.dart) from
-the SDK's internal implementation. Its deadline covers retries and survives caller
-cancellation while an in-flight packet still needs cleanup. The owner releases
-that deadline on acknowledgement or connection retirement. The
-[operation tests](../test/pending_operation_test.dart) additionally verify shared
-tokens, shutdown isolation, listener cleanup, pre-cancellation and terminal races
-with deterministic timers. Dependency cancellation types remain internal.
+A hosted dependency containing this fix is required before publishing to pub.dev.
 
 ## SDK-owned cancellation
 
@@ -193,11 +194,11 @@ Cancellation is optional, permanent and idempotent. One token may serve multiple
 operations; cancelling it does not stop shared client recovery. Completion,
 timeout and client close detach their listeners without cancelling the caller's
 token. Submitted work retains delivery uncertainty and its cleanup deadline.
-The initial wrapper owns no timers or native handles and requires no disposal;
+The wrapper owns no timers or native handles and requires no disposal;
 timed cancellation, linking and callback registration are outside this small API.
 
 [Public API tests](../test/cancellation_test.dart) cover token identity and state.
-The existing C# cancellation cases and Dart lifecycle tests now use these wrappers
+The C# cancellation cases and Dart lifecycle tests use these wrappers
 across telemetry, twin and provider operations over TLS and WSS. Additional
 [transport cases](../test/transport/device_client_test.dart) cover shared-source
 cancellation, independent operations, reuse after success and listener cleanup
@@ -342,12 +343,7 @@ setup over both transports. The tests use public loopback certificates, includin
 a separate client CA and intermediate. Local WebSocket peers request certificates
 in the initial TLS handshake; IoT Hub's later renegotiation is verified by the live
 test. No revocation or OS certificate-store options were added.
-On 25 October 2026, the [opt-in live test](testing.md#optional-x509-test) passed on
-macOS with a self-signed device certificate registered by thumbprint, confirming
-telemetry acknowledgement and twin retrieval through the public API over MQTT/TLS
-and secure WebSockets on port 443. The WebSocket run explicitly enabled
-renegotiation on its dedicated context. Live CA-signed chains, X.509 reconnect and
-Linux ARM64 validation remain outstanding.
+See [testing](testing.md#validation-status) for live results and remaining coverage.
 
 ## Internal MQTT telemetry coverage
 
@@ -365,7 +361,7 @@ CONNECT follows the pinned C# API version `2020-09-30`, clean session false,
 deadline. Product identification names this Dart SDK. Gateway routing changes the
 socket destination, not the hub identity used in the username or SAS audience.
 
-The initial message subset supports binary payloads, application properties,
+Telemetry supports binary payloads, application properties,
 message ID, correlation ID, content type and content encoding. Topic serialization
 uses `Uri.EscapeDataString` semantics (not SAS's form encoding), preserves null
 versus empty property values, and keeps system properties on name collisions.
@@ -499,11 +495,7 @@ Dart-specific cases cover early requests, cancellation/late-ACK races, handler
 failures, incoming count/byte limits, saturated response queues, reentrant callbacks
 and close with unfinished application work. [Public API tests](../test/device_client_api_test.dart)
 exercise the exported types and both registration methods over TLS and WSS.
-Rejected method SUBACKs use the existing protocol-error policy. On 25 October 2026,
-the user reported the [manual example](../example/direct_methods_example.dart)
-worked over MQTT/TLS: the named handler returned 200 with `{"ready":true}`, and the
-default handler returned 501 for an unregistered method. Live WSS method calls,
-overload handling and method subscription recovery remain unverified.
+Rejected method SUBACKs use the existing protocol-error policy.
 
 ## Cloud-to-device messages
 
@@ -578,10 +570,7 @@ Dart-specific tests cover capacity, stale completions, late SUBACKs, mixed-traff
 acknowledgement order, queued delivery after callback re-registration, reentrant
 removal and completion cancellation/deadline/close races. The
 [manual live test](testing.md#manual-cloud-to-device-test) exercises polling and
-callback delivery through the public API. On 25 October 2026, the user reported
-both steps passed using the default MQTT/TLS configuration, including body
-verification and explicit completion submission. Live WSS C2D, service-side
-completion feedback and reconnect redelivery remain unverified.
+callback delivery through the public API.
 
 ## Upstream maintenance
 

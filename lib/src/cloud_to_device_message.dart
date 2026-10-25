@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license; see third_party/azure-iot-sdk-csharp-LICENSE.
 // Adapted from MqttIotHubAdapter.PopulateMessagePropertiesFromPacket and
-// UrlEncodedDictionarySerializer.Deserialize. See docs/upstream.md.
+// UrlEncodedDictionarySerializer.Deserialize. See doc/upstream.md.
 import 'dart:typed_data';
 
 /// Receives a message that the application must explicitly complete.

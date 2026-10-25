@@ -1,0 +1,8 @@
+# This file overrides .gitignore for the publication archive.
+.dart_tool/
+.fvm/
+pubspec.lock
+
+# Repository tooling and tests, including public loopback certificate keys.
+/AGENTS.md
+/test/

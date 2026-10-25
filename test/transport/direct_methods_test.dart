@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license; see third_party/azure-iot-sdk-csharp-LICENSE.
 // Named cases adapt DeviceClientTests and MqttTransportHandlerTests.
-// See docs/upstream.md for source mappings and additional Dart lifecycle cases.
+// See doc/upstream.md for source mappings and additional Dart lifecycle cases.
 import 'dart:async';
 import 'dart:convert';
 

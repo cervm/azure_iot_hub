@@ -2,7 +2,7 @@
 // Licensed under the MIT license; see third_party/azure-iot-sdk-csharp-LICENSE.
 // Named cases adapt AuthenticationWithTokenRefreshTests.cs and
 // DeviceAuthenticationWithTokenRefreshTests.cs at the pinned C# commit.
-// See docs/upstream.md for the source/test mapping and Dart adaptations.
+// See doc/upstream.md for the source/test mapping and Dart adaptations.
 import 'dart:async';
 
 import 'package:azure_iot_hub/src/authentication/iot_hub_connection_string.dart';

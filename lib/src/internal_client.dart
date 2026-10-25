@@ -2,7 +2,7 @@
 // Licensed under the MIT license; see third_party/azure-iot-sdk-csharp-LICENSE.
 // Message, twin and method handling adapts InternalClient, MqttTransportHandler
 // and the retry pipeline.
-// See docs/upstream.md for the pinned source/test mapping and agreed deviations.
+// See doc/upstream.md for the pinned source/test mapping and agreed deviations.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';

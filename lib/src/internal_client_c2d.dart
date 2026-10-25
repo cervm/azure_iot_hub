@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license; see third_party/azure-iot-sdk-csharp-LICENSE.
 // Adapts InternalClient and MqttTransportHandler receive/completion behaviour.
-// See docs/upstream.md for bounded storage and acknowledgement-order corrections.
+// See doc/upstream.md for bounded storage and acknowledgement-order corrections.
 part of 'internal_client.dart';
 
 extension _CloudToDevice on InternalClient {

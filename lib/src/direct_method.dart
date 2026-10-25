@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license; see third_party/azure-iot-sdk-csharp-LICENSE.
 // Adapted from DirectMethod/MethodRequest.cs, MethodResponse.cs and Utils.cs.
-// See docs/upstream.md for the pinned reference and protocol constraints.
+// See doc/upstream.md for the pinned reference and protocol constraints.
 import 'dart:convert';
 import 'dart:typed_data';
 

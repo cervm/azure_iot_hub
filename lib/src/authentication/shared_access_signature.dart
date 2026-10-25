@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license; see third_party/azure-iot-sdk-csharp-LICENSE.
 // Adapted from the pinned C# SDK's Common/Security/SharedAccessSignature*.cs.
-// See docs/upstream.md for the source mapping.
+// See doc/upstream.md for the source mapping.
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
