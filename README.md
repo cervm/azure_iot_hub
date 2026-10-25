@@ -2,10 +2,35 @@
 
 A standalone, pure-Dart Azure IoT Hub device SDK for native runtimes.
 
-The experimental public API supports SAS authentication, MQTT over TLS and secure
-WebSockets, telemetry, and device twins. Behaviour follows the pinned stable C#
-device SDK; see the [upstream reference](docs/upstream.md) for source/test mappings
-and intentional differences.
+In development: the public API is experimental and publishing is currently
+disabled. Behaviour follows the pinned stable C# device SDK; see the
+[compatibility reference](docs/upstream.md) for source/test mappings and intentional
+differences.
+
+## Features
+
+Status describes the current implementation. See [testing](docs/testing.md) for
+validation coverage and remaining gaps.
+
+| Feature | Status | Details |
+| --- | --- | --- |
+| MQTT 3.1.1 over TLS | Implemented | Default transport, port 8883 |
+| MQTT over secure WebSockets | Implemented | Explicit selection, port 443; no automatic fallback |
+| SAS authentication | Implemented | Shared key, supplied token or asynchronous token provider |
+| Device-to-cloud telemetry | Implemented | QoS 1; application properties, message/correlation IDs, content type/encoding |
+| Read device twin properties | Implemented | Desired and reported properties as Dart maps |
+| Update reported properties | Implemented | JSON patches, including deletion with `null` |
+| Desired-property callbacks | Implemented | Patches and subscription recovery; application owns reconciliation |
+| Retry and reconnect | Implemented | Transient failures; bounded pending work, no offline persistence |
+| Connection-status callbacks | Implemented | Connection, recovery and shutdown notifications |
+| Cancellation and timeouts | Implemented | SDK-owned tokens; finite timeout across retries |
+| Cloud-to-device messages | Not implemented | |
+| Direct methods | Not implemented | |
+| X.509 authentication | Not implemented | |
+| File upload | Not implemented | |
+| Module clients | Not implemented | |
+| IoT Plug and Play | Not implemented | No model ID or component support |
+| AMQP / HTTPS transports | Not implemented | |
 
 ## Usage
 
@@ -74,75 +99,11 @@ fvm dart analyze
 fvm dart test
 ```
 
-Controlled tests cover both transports, cancellation, retries, deadlines, SAS
-providers and bounded pending work. Public API tests exercise the same operations
-using only the package's SDK import. See the [transport notes](docs/telemetry-transport.md)
-and [MQTT prototype](docs/mqtt-prototype.md).
+Normal test runs use local peers and skip real-hub tests. See
+[testing](docs/testing.md) for coverage, validation gaps and opt-in Azure tests.
 
-User-run live tests have passed for telemetry, twin updates, desired callbacks
-and WSS. Linux ARM64, live reconnect and long-running reliability validation remain
-outstanding. The public API migration has not yet been rerun against a real hub.
-
-## Optional Azure smoke test
-
-Configure `AZURE_IOT_TEST_DEVICE_CONNECTION_STRING` securely in your environment
-for a dedicated test device, then run:
-
-```sh
-AZURE_IOT_RUN_INTEGRATION=1 fvm dart test test/integration/telemetry_test.dart
-```
-
-This sends one telemetry event and waits for IoT Hub's PUBACK. It does not verify
-downstream routing or consumption. Normal test runs skip it; never put credentials
-in source files, command arguments or test logs.
-
-To validate secure WebSockets on port 443 with the same device:
-
-```sh
-AZURE_IOT_RUN_INTEGRATION=1 fvm dart test test/integration/websocket_test.dart
-```
-
-This sends telemetry and retrieves the twin over WSS. It checks PUBACK and twin
-versions without changing twin properties. The user-run test passed on
-24 October 2026 after adding the documented SAS query option; see the
-[transport validation notes](docs/telemetry-transport.md).
-
-To validate twin retrieval separately with the same environment configuration:
-
-```sh
-AZURE_IOT_RUN_INTEGRATION=1 fvm dart test test/integration/twin_test.dart
-```
-
-This reads desired/reported properties without changing them. To exercise updates:
-
-```sh
-AZURE_IOT_RUN_INTEGRATION=1 fvm dart test test/integration/reported_properties_test.dart
-```
-
-The update test writes a uniquely named `sdkPatchTest_...` reported property,
-checks nested merge/deletion, and deletes it in `finally`. It advances the reported
-version; failed network cleanup may leave the test property behind.
-
-To validate desired-property callbacks and re-registration, run the manual test
-with its separate opt-in:
-
-```sh
-AZURE_IOT_RUN_MANUAL_DESIRED=1 fvm dart test test/integration/desired_properties_test.dart --reporter expanded
-```
-
-When it prints `STEP 1 READY`, add the printed temporary property with numeric
-value `1` inside the test device twin's `properties.desired` in Azure Portal and
-save. When it prints `STEP 2 READY`, change that same property's value to `2` and
-save again. Allow the test to finish, then set the temporary property to `null`
-and save to delete it.
-Each step allows three minutes for the portal edit. The test checks both patches
-and increasing versions, with callback removal and re-registration between them.
-It does not test reconnect recovery. The device cannot perform desired-property
-cleanup itself; the test prints the property name even on failure.
-
-Run live tests sequentially when sharing a device identity; simultaneous clients
-can disconnect each other. The user-run PATCH test passed, verifying updates,
-twin retrieval and cleanup. The manual desired-property test also passed,
-verifying patch delivery before and after callback removal and re-registration;
-see the [validation notes](docs/twins.md). Live reconnect and the longer SAS expiry
-test remain unverified.
+The package currently depends on a pinned `mqtt_client`
+[fork](docs/mqtt-prototype.md#focused-dependency-fix) for packet-identifier handling.
+Implementation details and upstream test mappings are in the
+[transport notes](docs/telemetry-transport.md), [twin notes](docs/twins.md) and
+[C# compatibility reference](docs/upstream.md).

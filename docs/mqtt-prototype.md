@@ -1,8 +1,10 @@
 # Cancellation and MQTT prototype
 
-This is a test-only experiment, not a public device client. Its operation lifecycle
-now uses the SDK's internal `PendingOperation` component. The SDK internally uses
-`cancellation_token` 2.0.1; the prototype pins the `mqtt_client` fork at
+This records the original test-only experiment and the dependency fix used by the
+SDK. For the current client, see the [README](../README.md) and
+[transport notes](telemetry-transport.md). The prototype's operation lifecycle uses
+the SDK's internal `PendingOperation` component. The SDK internally uses
+`cancellation_token` 2.0.1 and pins the `mqtt_client` fork at
 [`e9baef8`](https://github.com/cervm/mqtt_client/commit/e9baef8c848f3ada77b1f02750adf479ab8b3f0d),
 based on 10.13.0.
 
@@ -64,18 +66,18 @@ does not prove bounded native TLS resource cleanup. The SDK's subsequent
 [owned TLS adapter](telemetry-transport.md) fixes this on the tested macOS runtime;
 the test-only prototype intentionally retains the original dependency transport.
 
-## Recommendation and scope
+## Scope
 
-Use `cancellation_token` internally: cooperative registration and merged tokens
-support the tested lifetime model. The SDK now exposes its own
+The SDK uses `cancellation_token` internally: cooperative registration and merged
+tokens support the tested lifetime model. It exposes its own
 [source/token wrappers](upstream.md#sdk-owned-cancellation), keeping dependency
 types internal.
-Use the focused fork pinned above;
-an upstream PR is deferred. Rerun these regressions when changing the dependency.
+The focused fork is pinned above; an upstream PR is deferred.
+Rerun these regressions when changing the dependency.
 
 The fixed retry delay, tiny payload/count limits and loopback TCP are experiment
 controls. Azure topics, transport authentication, twins, error classification,
-exponential backoff and jitter remain unimplemented in this harness. Azure TLS/WSS integration, DNS blackholes,
-credential renewal, Linux ARM64 and long-running resource usage need validation.
+exponential backoff and jitter remain unimplemented in this harness. Current SDK
+validation coverage and gaps are recorded in [testing](testing.md).
 The harness retains the four-minute default operation timeout; tests shorten it
 to ten virtual seconds.

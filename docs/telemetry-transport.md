@@ -1,4 +1,4 @@
-# Internal telemetry transport
+# Telemetry transport
 
 The public `DeviceClient` delegates to `InternalClient` for SAS authentication,
 implicit open, twin retrieval, reported-property updates, desired-property callbacks
@@ -10,7 +10,6 @@ Retries can produce duplicate telemetry, as with C# QoS 1 sends.
 `MqttTransport` retains the pinned fork's codec, packet identifiers and publish
 acknowledgement handling. Both connection adapters share a bounded MQTT decoder
 and an owned `RawSocket` through the TLS handshake, including partial reads/writes.
-No further fork changes or dependencies are required.
 The two upstream paths that log CONNECT credentials are bypassed, including when
 another MQTT client enables the package's global logger.
 
