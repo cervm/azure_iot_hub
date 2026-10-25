@@ -119,8 +119,13 @@ final class DeviceClient {
   /// context is not inspected at construction; missing or rejected credentials
   /// fail during connection. MQTT CONNECT contains no SAS password.
   ///
-  /// Only [MqttTransportType.tcp] is supported for X.509; selecting WebSockets
-  /// throws [UnsupportedError]. Other options follow [DeviceClient.fromConnectionString].
+  /// MQTT/TLS uses port 8883; [MqttTransportType.webSocket] uses port 443.
+  /// IoT Hub's WebSocket endpoint requests the client certificate using TLS
+  /// renegotiation. Explicitly enable [SecurityContext.allowLegacyUnsafeRenegotiation]
+  /// on a context dedicated to this endpoint. Dart warns that renegotiation is
+  /// suitable only for known legacy servers; the SDK never enables it itself.
+  /// Server certificate verification remains required.
+  /// Other options follow [DeviceClient.fromConnectionString].
   DeviceClient.withX509({
     required String hostName,
     required String deviceId,

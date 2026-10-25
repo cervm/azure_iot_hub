@@ -287,7 +287,7 @@ leaves it reusable after close. Keep the context unchanged while a client uses i
 The certificate entry point is `withX509`; `fromConnectionString` retains its SAS
 semantics. There is no new certificate package or SDK credential wrapper.
 
-Like C#, authentication is performed during TLS setup. MQTT CONNECT retains the
+Like C#, certificate authentication is performed by TLS. MQTT CONNECT retains the
 hub username and device client ID, with no password field or SAS acquisition.
 Gateway routing changes the socket destination while preserving the hub identity.
 Connection/operation deadlines, cancellation and recovery use the existing paths.
@@ -304,12 +304,23 @@ null-certificate case maps to the required public parameter and an internal guar
 Device identity association is left to IoT Hub; the SDK does not parse certificate
 subjects or perform a second certificate validation implementation.
 
-**Agreed transport scope:** this implementation supports X.509 over MQTT/TLS only.
-Selecting WebSockets throws `UnsupportedError` before opening a connection.
-C# supports certificate authentication over WebSockets but restricts its explicit
-chain argument to TCP. Our existing SAS WebSocket path disables client-certificate
-negotiation; X.509 WebSocket negotiation needs separate verification. SAS transport
-behaviour and Dart's default renegotiation setting remain unchanged.
+Both MQTT/TLS (8883) and secure WebSockets (443) support X.509. As in C#'s
+`CreateWebSocketChannelFactory`, the WebSocket request uses `/$iothub/websocket`
+and subprotocol `mqtt` with the supplied client certificate. X.509 omits the
+SAS-only `iothub-no-client-cert=true` query option. C# restricts its explicit chain
+argument to TCP; Dart presents the context's chain over either transport without
+OS installation.
+
+**Agreed TLS opt-in:** IoT Hub requests the WebSocket client certificate through
+TLS renegotiation. The application must explicitly enable Dart's
+[`SecurityContext.allowLegacyUnsafeRenegotiation`](https://api.dart.dev/dart-io/SecurityContext/allowLegacyUnsafeRenegotiation.html)
+on a dedicated IoT Hub context. Dart warns that this mechanism should only be used
+with known legacy servers at a quiet point in the protocol. The SDK never enables
+it or mutates caller TLS settings; normal server certificate verification remains
+required. This explicit configuration is a Dart adaptation of C#'s platform TLS
+behaviour. A live probe with Dart defaults upgraded to WebSocket but closed before
+CONNACK; the same certificate connected with explicit opt-in. SAS retains its
+existing query option and does not need this setting.
 
 TLS failures, including a `TlsException` arriving after the initial handshake,
 are terminal `.tls` failures; a rejecting MQTT CONNACK is `.authentication`.
@@ -322,17 +333,21 @@ operation failures and connection diagnostics.
 | Responsibility | Pinned C# reference | Dart coverage |
 | --- | --- | --- |
 | Identity, certificate ownership and SAS exclusion | `iothub/device/src/Authentication/DeviceAuthenticationWithX509Certificate.cs`, `IotHubConnectionStringBuilder.cs`; `src/ClientFactory.cs` | [Public constructor](../lib/src/device_client.dart), [identity tests](../test/authentication/iot_hub_connection_string_test.dart) |
-| Certificate on TLS and omitted MQTT password | `src/Transport/Mqtt/MqttTransportHandler.cs`: `CreateChannelFactory`; `MqttIotHubAdapterFactory.Create`, `MqttIotHubAdapter.ConnectAsync` | [X.509 transport tests](../test/transport/x509_test.dart) verify client certificate, complete chain, CONNECT flags, telemetry and twin retrieval |
-| Missing certificate, invalid device association and supplied chain | `iothub/device/tests/ClientSettings/TransportSettingsTests.cs`: `DeviceClient_NullX509Certificate`; `e2e/test/iothub/DeviceClientX509AuthenticationE2ETests.cs`: `X509_InvalidDeviceId_Throw_UnauthorizedException_MqttTcp`, `X509_Cert_Chain_Install_Test_MqttTcp` | Named controlled adaptations; the chain case validates presentation instead of OS-store installation |
+| Certificate on TLS and omitted MQTT password | `src/Transport/Mqtt/MqttTransportHandler.cs`: `CreateChannelFactory`, `CreateWebSocketChannelFactory`; `MqttIotHubAdapterFactory.Create`, `MqttIotHubAdapter.ConnectAsync` | [X.509 transport tests](../test/transport/x509_test.dart) verify client certificate, complete chain, CONNECT flags, telemetry and twin retrieval over both transports; [WebSocket tests](../test/transport/websocket_test.dart) verify the upgrade URI and preservation of caller TLS settings |
+| Missing certificate, invalid device association and supplied chain | `iothub/device/tests/ClientSettings/TransportSettingsTests.cs`: `DeviceClient_NullX509Certificate`; `e2e/test/iothub/DeviceClientX509AuthenticationE2ETests.cs`: `X509_InvalidDeviceId_Throw_UnauthorizedException_MqttTcp`, `X509_InvalidDeviceId_Throw_UnauthorizedException_MqttWs`, `X509_Cert_Chain_Install_Test_MqttTcp` | Named controlled adaptations; the chain case validates presentation instead of OS-store installation |
 
 Additional cases cover missing key/intermediate, server trust, post-handshake TLS
 alerts, context reuse, reconnect, cancellation, finite deadlines and close during
-setup. The tests use public loopback certificates, including a separate client CA
-and intermediate. No revocation or OS certificate-store options were added.
+setup over both transports. The tests use public loopback certificates, including
+a separate client CA and intermediate. Local WebSocket peers request certificates
+in the initial TLS handshake; IoT Hub's later renegotiation is verified by the live
+test. No revocation or OS certificate-store options were added.
 On 25 October 2026, the [opt-in live test](testing.md#optional-x509-test) passed on
 macOS with a self-signed device certificate registered by thumbprint, confirming
-telemetry acknowledgement and twin retrieval through the public API. Live CA-signed
-chains, X.509 reconnect and Linux ARM64 validation remain outstanding.
+telemetry acknowledgement and twin retrieval through the public API over MQTT/TLS
+and secure WebSockets on port 443. The WebSocket run explicitly enabled
+renegotiation on its dedicated context. Live CA-signed chains, X.509 reconnect and
+Linux ARM64 validation remain outstanding.
 
 ## Internal MQTT telemetry coverage
 
@@ -390,7 +405,8 @@ for devices without client certificates that otherwise fail to connect
 ([Embedded C source](https://github.com/Azure/azure-sdk-for-c/blob/main/sdk/inc/azure/iot/az_iot_hub_client.h)).
 Dart exposes TLS renegotiation only through the explicitly named
 [`allowLegacyUnsafeRenegotiation`](https://api.dart.dev/dart-io/SecurityContext/allowLegacyUnsafeRenegotiation.html)
-setting; this implementation retains Dart's default TLS configuration. SAS remains
+setting; SAS retains Dart's default TLS configuration. X.509 uses the
+[explicit application opt-in](#x509-authentication) described above. SAS remains
 in MQTT CONNECT, with normal server certificate validation. Live telemetry and twin
 retrieval passed with this query; see the [validation notes](telemetry-transport.md)
 for scope and limits.

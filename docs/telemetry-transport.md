@@ -1,6 +1,6 @@
 # Telemetry transport
 
-The public `DeviceClient` delegates to `InternalClient` for SAS authentication,
+The public `DeviceClient` delegates to `InternalClient` for SAS or X.509 authentication,
 implicit open, twin retrieval, reported-property updates, desired-property callbacks
 and QoS 1 telemetry over TLS on port 8883 or secure WebSockets on port 443.
 A successful send means PUBACK arrived; cancellation or failure after submission
@@ -20,7 +20,10 @@ TCP/TLS remains the default. This corresponds to C#'s explicit MQTT transport
 options; automatic TCP-to-WSS fallback and proxy configuration are not implemented.
 SAS WSS uses `/$iothub/websocket?iothub-no-client-cert=true`, subprotocol `mqtt`,
 binary messages and no compression; see the [source mapping](upstream.md).
-Gateway routing still changes only the connection destination, not SAS identity.
+X.509 WSS omits that query option to permit client-certificate negotiation and
+requires explicit application opt-in to TLS renegotiation on a dedicated context;
+see the [X.509 contract](upstream.md#x509-authentication).
+Gateway routing still changes only the connection destination, not hub identity.
 
 `mqtt_client` already supports WSS using Dart's `WebSocket`. Its connection wrapper
 cannot abort native setup immediately or enforce our buffer limits. We reuse the

@@ -26,7 +26,7 @@ validation coverage and remaining gaps.
 | Connection-status callbacks | Implemented | Connection, recovery and shutdown notifications |
 | Cancellation and timeouts | Implemented | SDK-owned tokens; finite timeout across retries |
 | Cloud-to-device messages | Implemented | Polling or callbacks, properties and explicit ordered completion |
-| X.509 authentication | Implemented | MQTT/TLS with an application-configured `SecurityContext`; X.509 WebSockets not yet supported |
+| X.509 authentication | Implemented | MQTT/TLS and WSS with an application-configured `SecurityContext`; WSS requires explicit TLS renegotiation opt-in |
 | File upload | Not implemented | |
 | Module clients | Not implemented | |
 | IoT Plug and Play | Not implemented | No model ID or component support |
@@ -65,8 +65,11 @@ disconnects. See the [authentication notes](docs/upstream.md#internal-authentica
 For certificate authentication, use `DeviceClient.withX509(hostName: ..., deviceId:
 ..., securityContext: context)`. Prepare the Dart `SecurityContext` with trusted
 server roots, the device certificate chain and its private key before construction.
-The application owns certificate loading and renewal. See the
-[X.509 contract](docs/upstream.md#x509-authentication) and
+The application owns certificate loading and renewal. For WebSockets on port 443,
+select `transport: .webSocket` and explicitly set
+`context.allowLegacyUnsafeRenegotiation = true` on a dedicated IoT Hub context.
+The SDK never changes this setting; server certificate verification remains enabled.
+See the [X.509 contract](docs/upstream.md#x509-authentication) and
 [live test setup](docs/testing.md#optional-x509-test).
 
 `getTwin()` returns `Twin` with `twin.properties.desired` and `reported` maps.

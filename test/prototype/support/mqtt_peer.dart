@@ -39,20 +39,30 @@ final class MqttPeerServer {
     );
   }
 
-  static Future<MqttPeerServer> startWebSocket(SecurityContext context) async {
+  static Future<MqttPeerServer> startWebSocket(
+    SecurityContext context, {
+    bool requireClientCertificate = false,
+  }) async {
     final server = await HttpServer.bindSecure(
       InternetAddress.loopbackIPv4,
       0,
       context,
+      requestClientCertificate: requireClientCertificate,
     );
     final peers = server.asyncMap((request) async {
+      final certificate = request.certificate;
+      if (requireClientCertificate && certificate == null) {
+        request.response.statusCode = HttpStatus.forbidden;
+        await request.response.close();
+        throw const HttpException('Client certificate required.');
+      }
       final socket = await WebSocketTransformer.upgrade(
         request,
         protocolSelector: (protocols) =>
             protocols.contains('mqtt') ? 'mqtt' : null,
         compression: CompressionOptions.compressionOff,
       );
-      return MqttPeer.webSocket(socket);
+      return MqttPeer.webSocket(socket, certificate: certificate);
     });
     return MqttPeerServer._(
       peers,
@@ -89,12 +99,23 @@ final class MqttPeerServer {
 }
 
 final class MqttPeer {
-  MqttPeer(Socket socket) : this._(socket, socket, null);
+  MqttPeer(Socket socket)
+    : this._(
+        socket,
+        socket,
+        null,
+        socket is SecureSocket ? socket.peerCertificate : null,
+      );
 
-  MqttPeer.webSocket(WebSocket socket)
-    : this._(socket.cast<List<int>>(), null, socket);
+  MqttPeer.webSocket(WebSocket socket, {X509Certificate? certificate})
+    : this._(socket.cast<List<int>>(), null, socket, certificate);
 
-  MqttPeer._(Stream<List<int>> input, this._socket, this._webSocket) {
+  MqttPeer._(
+    Stream<List<int>> input,
+    this._socket,
+    this._webSocket,
+    this.peerCertificate,
+  ) {
     _socket?.done.ignore();
     _listener = input.listen(
       _read,
@@ -106,10 +127,7 @@ final class MqttPeer {
   final Socket? _socket;
   final WebSocket? _webSocket;
 
-  X509Certificate? get peerCertificate {
-    final socket = _socket;
-    return socket is SecureSocket ? socket.peerCertificate : null;
-  }
+  final X509Certificate? peerCertificate;
 
   Future<void> sendBytes(List<int> bytes) async {
     if (_webSocket case final socket?) {

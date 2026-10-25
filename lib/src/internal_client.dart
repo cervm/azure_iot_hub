@@ -55,15 +55,8 @@ final class InternalClient {
         this.port > 65535) {
       throw ArgumentError('Invalid timeout, capacity or port.');
     }
-    if (credentials.usingX509) {
-      if (securityContext == null) {
-        throw ArgumentError('X.509 authentication requires a SecurityContext.');
-      }
-      if (transport != .tcp) {
-        throw UnsupportedError(
-          'X.509 authentication currently requires MQTT/TLS.',
-        );
-      }
+    if (credentials.usingX509 && securityContext == null) {
+      throw ArgumentError('X.509 authentication requires a SecurityContext.');
     }
   }
 
@@ -419,6 +412,7 @@ final class InternalClient {
         diagnostics: connectionDiagnostics,
         maxBufferedBytes: maxPendingBytes + 65536,
         securityContext: securityContext,
+        usingX509: credentials.usingX509,
         schedule: schedule,
         now: now,
       );

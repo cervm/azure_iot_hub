@@ -13,8 +13,10 @@ and WSS peers cover telemetry, twins, authentication, cancellation, retries,
 deadlines, direct methods, C2D messages, connection status and bounded pending work.
 Public API tests use only the package's SDK import. See the
 [C# source/test mappings](upstream.md).
-X.509 tests additionally require mutual TLS, verify the client chain and MQTT
-password omission, and cover rejected credentials and reconnects.
+X.509 tests additionally verify the client chain and MQTT password omission over
+both transports, and cover rejected credentials and reconnects. Local WebSocket
+peers request certificates during the initial TLS handshake; the opt-in live
+test verifies IoT Hub's later certificate negotiation.
 
 ## Live validation status
 
@@ -36,8 +38,9 @@ service-side completion feedback and reconnect redelivery remain unverified.
 
 On 25 October 2026, the X.509 integration test passed on macOS using a self-signed
 device certificate registered by thumbprint: telemetry was acknowledged and the
-twin retrieved through the public API over MQTT/TLS. Live CA-signed certificate
-chains and X.509 reconnect remain unverified.
+twin retrieved through the public API over MQTT/TLS and secure WebSockets on port
+443. The WebSocket run used explicit TLS renegotiation opt-in on its dedicated
+context. Live CA-signed certificate chains and X.509 reconnect remain unverified.
 
 Linux ARM64, live reconnect, SAS expiry/renewal and long-running resource usage
 remain unverified. See the [transport](telemetry-transport.md#validation-and-limits)
@@ -141,6 +144,19 @@ Configure these environment variables:
 AZURE_IOT_RUN_X509_INTEGRATION=1 fvm dart test test/integration/x509_test.dart --reporter expanded
 ```
 
+To use WebSockets on port 443:
+
+```sh
+AZURE_IOT_RUN_X509_INTEGRATION=1 AZURE_IOT_TEST_TRANSPORT=webSocket \
+fvm dart test test/integration/x509_test.dart --reporter expanded
+```
+
+The WebSocket test explicitly sets `allowLegacyUnsafeRenegotiation = true` on its
+dedicated context so IoT Hub can request the client certificate. Dart warns that
+this setting is only suitable for known legacy servers; see the
+[agreed TLS contract](upstream.md#x509-authentication). The SDK does not enable it
+automatically. MQTT/TLS keeps the default setting.
+
 The test sends one telemetry event and retrieves the twin using the public X.509
-constructor over MQTT/TLS. It uses platform server roots and makes no twin changes.
-Certificate files stay outside this repository. No SAS connection string is used.
+constructor. It uses platform server roots and makes no twin changes. Certificate
+files stay outside this repository. No SAS connection string is used.

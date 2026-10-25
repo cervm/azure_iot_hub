@@ -20,6 +20,7 @@ import 'package:test/test.dart';
 import '../prototype/support/manual_time.dart';
 import '../prototype/support/mqtt_peer.dart';
 import 'support/device_test_support.dart';
+import 'support/x509_test_support.dart';
 
 void main() {
   late HttpServer server;
@@ -133,6 +134,25 @@ void main() {
       );
     },
   );
+
+  test('X509 endpoint permits client-certificate negotiation without HTTP credentials', () async {
+    connection.closeClient();
+    final context = x509ClientContext();
+    connection = OwnedWebSocketConnection(
+      bus,
+      onFailure: failures.add,
+      maxBufferedBytes: 4096,
+      securityContext: context,
+      usingX509: true,
+    );
+    await establish();
+    final incoming = requests.current;
+    expect(incoming.uri.path, r'/$iothub/websocket');
+    expect(incoming.uri.hasQuery, isFalse);
+    expect(incoming.headers.value('sec-websocket-protocol'), 'mqtt');
+    expect(incoming.headers.value('authorization'), isNull);
+    expect(context.allowLegacyUnsafeRenegotiation, isFalse);
+  });
 
   test('ClientWebSocketChannelWriteWithoutConnectTest', () {
     expect(

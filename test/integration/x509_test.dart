@@ -5,8 +5,12 @@ import 'package:azure_iot_hub/azure_iot_hub.dart';
 import 'package:test/test.dart';
 
 void main() {
+  final transport =
+      Platform.environment['AZURE_IOT_TEST_TRANSPORT'] == 'webSocket'
+      ? MqttTransportType.webSocket
+      : MqttTransportType.tcp;
   test(
-    'real IoT Hub accepts X509 telemetry and returns a twin over MQTT/TLS',
+    'real IoT Hub accepts X509 telemetry and returns a twin over ${transport.name}',
     () async {
       String requiredSetting(String name) {
         final value = Platform.environment[name];
@@ -25,6 +29,10 @@ void main() {
       );
       final keyPath = requiredSetting('AZURE_IOT_TEST_X509_PRIVATE_KEY_PATH');
       final context = SecurityContext(withTrustedRoots: true);
+      // Explicit application opt-in, limited to this IoT Hub test context.
+      if (transport == .webSocket) {
+        context.allowLegacyUnsafeRenegotiation = true;
+      }
       try {
         context.useCertificateChainBytes(
           await File(certificatePath).readAsBytes(),
@@ -44,6 +52,7 @@ void main() {
         hostName: hostName,
         deviceId: deviceId,
         securityContext: context,
+        transport: transport,
         operationTimeout: const .new(seconds: 30),
       );
       try {

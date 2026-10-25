@@ -16,6 +16,7 @@ final class OwnedWebSocketConnection extends MqttConnectionBase<WebSocket> {
     required this.onFailure,
     required this.maxBufferedBytes,
     SecurityContext? securityContext,
+    this.usingX509 = false,
     this.diagnostics,
     Future<ConnectionTask<RawSocket>> Function(String, int)? startConnect,
   }) : _socket = OwnedTlsSocket(
@@ -37,6 +38,7 @@ final class OwnedWebSocketConnection extends MqttConnectionBase<WebSocket> {
 
   final void Function(Object) onFailure;
   final int maxBufferedBytes;
+  final bool usingX509;
   final ConnectionDiagnostics? diagnostics;
   final OwnedTlsSocket _socket;
   final _http = HttpClient();
@@ -78,9 +80,10 @@ final class OwnedWebSocketConnection extends MqttConnectionBase<WebSocket> {
           host: server,
           port: port,
           path: r'/$iothub/websocket',
-          // This transport uses SAS. IoT Hub documents this option for clients
-          // that cannot negotiate a client certificate; see docs/upstream.md.
-          queryParameters: const {'iothub-no-client-cert': 'true'},
+          // SAS skips certificate negotiation; X.509 must leave it enabled.
+          queryParameters: usingX509
+              ? null
+              : const {'iothub-no-client-cert': 'true'},
         ).toString(),
         protocols: const ['mqtt'],
         compression: CompressionOptions.compressionOff,
