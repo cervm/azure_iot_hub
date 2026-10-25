@@ -7,12 +7,13 @@ import 'dart:io';
 import 'authentication/iot_hub_connection_string.dart';
 import 'cancellation.dart';
 import 'connection_status.dart';
+import 'direct_method.dart';
 import 'internal_client.dart';
 import 'telemetry_message.dart';
 import 'transport/mqtt_transport_type.dart';
 import 'twin.dart';
 
-/// An Azure IoT Hub device client for telemetry and device twin properties.
+/// An Azure IoT Hub device client for telemetry, twins and direct methods.
 ///
 /// Operations open the connection implicitly and retry transient failures within
 /// one finite deadline, including when a cancellation token is supplied. The
@@ -38,6 +39,8 @@ final class DeviceClient {
   /// after cancellation; it must be between 1 and 32767. [maxPendingBytes] bounds
   /// retained operation bytes, including payloads, topics and twin responses,
   /// and must be positive.
+  /// Direct-method calls have separate incoming count and byte budgets with these
+  /// same limits. Their responses share the outgoing pending-operation budget.
   DeviceClient.fromConnectionString(
     String connectionString, {
     MqttTransportType transport = .tcp,
@@ -164,8 +167,42 @@ final class DeviceClient {
     cancellationToken: cancellationToken,
   );
 
+  /// Registers or replaces the handler for [methodName]; `null` removes it.
+  ///
+  /// The first handler subscribes to method requests; removing the last named
+  /// and default handler unsubscribes. Registration waits for acknowledgement.
+  /// Removal takes effect locally before UNSUBACK, following C#, even if the
+  /// unsubscription later fails or is cancelled. Reconnect restores subscriptions.
+  /// The cancellation token controls registration, not handler execution.
+  ///
+  /// Calls may overlap. Unknown methods return 501, invalid payloads return 400,
+  /// and handler failures return 500. Overload returns 503 when response capacity
+  /// permits; otherwise the cloud caller times out. Responses use the ordinary
+  /// operation timeout. Application handler execution has no SDK timeout.
+  Future<void> setMethodHandler(
+    String methodName,
+    MethodCallback? handler, {
+    CancellationToken? cancellationToken,
+  }) => _client.setMethodHandler(
+    methodName,
+    handler,
+    cancellationToken: cancellationToken,
+  );
+
+  /// Registers a fallback for methods without a named handler; `null` removes it.
+  ///
+  /// Registration, cancellation and execution follow [setMethodHandler].
+  Future<void> setMethodDefaultHandler(
+    MethodCallback? handler, {
+    CancellationToken? cancellationToken,
+  }) => _client.setMethodDefaultHandler(
+    handler,
+    cancellationToken: cancellationToken,
+  );
+
   /// Permanently closes the client and fails pending operations.
   ///
   /// Repeated calls are harmless. Create a new client to connect again.
+  /// Running method handlers are not awaited; their later results are discarded.
   Future<void> close() => _client.close();
 }

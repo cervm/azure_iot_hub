@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license; see third_party/azure-iot-sdk-csharp-LICENSE.
-// Twin request handling adapts MqttTransportHandler and the retry pipeline.
+// Twin and direct-method handling adapts InternalClient, MqttTransportHandler
+// and the retry pipeline.
 // See docs/upstream.md for the pinned source/test mapping and agreed deviations.
 import 'dart:async';
 import 'dart:convert';
@@ -15,6 +16,7 @@ import 'authentication/iot_hub_connection_string.dart';
 import 'authentication/sas_token_cache.dart';
 import 'cancellation.dart';
 import 'connection_status.dart';
+import 'direct_method.dart';
 import 'pending_operation.dart';
 import 'telemetry_message.dart';
 import 'transport/connection_diagnostics.dart';
@@ -85,11 +87,20 @@ final class InternalClient {
     .clientClose,
   );
   DesiredPropertyUpdateCallback? _desiredCallback;
+  final _methodHandlers = <String, MethodCallback>{};
+  MethodCallback? _defaultMethodHandler;
+  bool _methodsEnabled = false;
+  int _methodCallCount = 0;
+  int _methodCallBytes = 0;
+  static const _methodTopic = r'$iothub/methods/POST/#';
+  static const _methodPrefix = r'$iothub/methods/POST/';
   static const _desiredTopic = r'$iothub/twin/PATCH/properties/desired/#';
   static const _desiredPrefix = r'$iothub/twin/PATCH/properties/desired/';
 
   int get pendingCount => _pending.length;
   int get pendingBytes => _pendingBytes;
+  int get methodCallCount => _methodCallCount;
+  int get methodCallBytes => _methodCallBytes;
   bool get isConnected => _connected;
 
   void setConnectionStatusChangesHandler(
@@ -157,12 +168,36 @@ final class InternalClient {
     desiredCallback: callback,
   );
 
+  Future<void> setMethodHandler(
+    String methodName,
+    MethodCallback? handler, {
+    CancellationToken? cancellationToken,
+  }) => _submit(
+    .methodSubscription,
+    null,
+    cancellationToken,
+    methodRegistration: .new(methodName, handler),
+  );
+
+  Future<void> setMethodDefaultHandler(
+    MethodCallback? handler, {
+    CancellationToken? cancellationToken,
+  }) => _submit(
+    .methodSubscription,
+    null,
+    cancellationToken,
+    methodRegistration: .new(null, handler),
+  );
+
   Future<TwinProperties?> _submit(
     _OperationKind kind,
     TelemetryMessage? message,
     CancellationToken? token, {
     Map<String, Object?>? reportedProperties,
     DesiredPropertyUpdateCallback? desiredCallback,
+    _MethodRegistration? methodRegistration,
+    String? methodRequestId,
+    MethodResponse? methodResponse,
   }) {
     final reason = _closed
         ? OperationFailureReason.closed
@@ -179,11 +214,21 @@ final class InternalClient {
       _desiredCallback = desiredCallback;
       return Future.value();
     }
+    if (methodRegistration != null &&
+        _attempt?.methodAction == null &&
+        !_pending.any((operation) => operation.kind == .methodSubscription) &&
+        _methodSubscriptionNeeded(methodRegistration) == _methodsEnabled) {
+      _applyMethodRegistration(methodRegistration);
+      return Future.value();
+    }
     final topic = switch (kind) {
       .twinGet => r'$iothub/twin/GET/?$rid=',
       .twinPatch => r'$iothub/twin/PATCH/properties/reported/?$rid=',
       .telemetry => telemetryTopic(message!, credentials.deviceId),
-      .open || .desiredSubscription => null,
+      .methodResponse =>
+        '${r'$iothub/methods/res/'}${methodResponse!.status}'
+            '/?${r'$rid='}${escapeDataString(methodRequestId!)}',
+      .open || .desiredSubscription || .methodSubscription => null,
     };
     if (topic != null) {
       try {
@@ -195,9 +240,9 @@ final class InternalClient {
     }
     final payload = kind == .twinPatch
         ? encodeReportedProperties(reportedProperties!)
-        : message?.payload ?? const <int>[];
+        : methodResponse?.result ?? message?.payload ?? const <int>[];
     final size = topic == null
-        ? 0
+        ? utf8.encode(methodRegistration?.name ?? '').length
         : payload.length +
               utf8.encode(topic).length +
               (kind.isTwin ? 36 : 0) +
@@ -231,6 +276,7 @@ final class InternalClient {
         },
       ),
       desiredCallback: desiredCallback,
+      methodRegistration: methodRegistration,
     );
     _pending.add(operation);
     _pendingBytes += size;
@@ -239,6 +285,10 @@ final class InternalClient {
       cancellationToken: unwrapCancellationToken(token),
     )) {
       return operation.completion.future;
+    }
+    if (kind == .methodSubscription) {
+      _processMethodRegistrations();
+      if (operation.completion.isCompleted) return operation.completion.future;
     }
     if (_connected) {
       _flush();
@@ -250,12 +300,18 @@ final class InternalClient {
 
   bool _hasReservation(_Operation operation) =>
       operation.packetId != null ||
-      identical(_attempt?.desiredAction?.operation, operation);
+      identical(_attempt?.desiredAction?.operation, operation) ||
+      identical(_attempt?.methodAction?.operation, operation);
 
   void _release(_Operation operation) {
     _clearTwinRequest(operation);
     operation.completion.release();
-    if (_pending.remove(operation)) _pendingBytes -= operation.size;
+    if (_pending.remove(operation)) {
+      _pendingBytes -= operation.size;
+      if (operation.kind == .methodSubscription) {
+        scheduleMicrotask(_processMethodRegistrations);
+      }
+    }
     _packets.remove(operation.packetId);
   }
 
@@ -349,7 +405,10 @@ final class InternalClient {
           if (!identical(_attempt, attempt)) break;
           final publish = message.payload as MqttPublishMessage;
           try {
-            if (message.topic.startsWith(_desiredPrefix)) {
+            if (message.topic.startsWith(_methodPrefix)) {
+              _receiveMethod(attempt, message.topic, publish);
+              continue;
+            } else if (message.topic.startsWith(_desiredPrefix)) {
               final patch = decodeDesiredPropertyPatch(publish.payload.message);
               _desiredCallback?.call(patch);
             } else {
@@ -370,19 +429,18 @@ final class InternalClient {
         if (_closed || !identical(_attempt, attempt)) return;
         if (topic == _desiredTopic) {
           _completeDesiredAction(attempt, subscribed: true);
+        } else if (topic == _methodTopic) {
+          _completeMethodAction(attempt, subscribed: true);
         } else if (topic == r'$iothub/twin/res/#') {
-          if (_desiredCallback != null) {
-            _startDesiredAction(attempt, subscribe: true);
-          } else {
-            _connectedReady(attempt);
-          }
+          _restoreSubscriptions(attempt);
         }
       };
       transport.onUnsubscribed = (topic) {
-        if (!_closed &&
-            identical(_attempt, attempt) &&
-            topic == _desiredTopic) {
+        if (_closed || !identical(_attempt, attempt)) return;
+        if (topic == _desiredTopic) {
           _completeDesiredAction(attempt, subscribed: false);
+        } else if (topic == _methodTopic) {
+          _completeMethodAction(attempt, subscribed: false);
         }
       };
       transport.onSubscribeFail = (_) {
@@ -425,6 +483,16 @@ final class InternalClient {
       // uncancellable DNS cannot build unbounded abandoned attempts. Callers
       // and close() settle independently; late results are discarded.
       await current?.transport.settled;
+    }
+  }
+
+  void _restoreSubscriptions(_Attempt attempt) {
+    if (_desiredCallback != null && !attempt.desiredSubscribed) {
+      _startDesiredAction(attempt, subscribe: true);
+    } else if (_methodsEnabled && !attempt.methodsSubscribed) {
+      _startMethodAction(attempt, subscribe: true);
+    } else {
+      _connectedReady(attempt);
     }
   }
 
@@ -477,7 +545,7 @@ final class InternalClient {
       _release(operation);
     }
     if (!_connected) {
-      _connectedReady(attempt);
+      _restoreSubscriptions(attempt);
     } else {
       _flush();
     }
@@ -485,11 +553,13 @@ final class InternalClient {
 
   void _flush() {
     final attempt = _attempt!;
+    _processMethodRegistrations();
     for (final operation in _pending.toList()) {
       if (!_connected || !identical(_attempt, attempt)) break;
       if (operation.completion.isCompleted || operation.packetId != null) {
         continue;
       }
+      if (operation.kind == .methodSubscription) continue;
       if (operation.kind == .desiredSubscription) {
         if (attempt.desiredAction != null) continue;
         final subscribe = operation.desiredCallback != null;
@@ -540,6 +610,227 @@ final class InternalClient {
       // Cancellation can arrive while SUBACK/UNSUBACK is in flight. Restore the
       // last committed registration once that exchange has released its ID.
       _startDesiredAction(attempt, subscribe: _desiredCallback != null);
+    }
+    if (_connected &&
+        identical(_attempt, attempt) &&
+        attempt.methodAction == null &&
+        attempt.methodsSubscribed != _methodsEnabled) {
+      _startMethodAction(attempt, subscribe: _methodsEnabled);
+    }
+  }
+
+  void _applyMethodRegistration(_MethodRegistration registration) {
+    final name = registration.name;
+    final handler = registration.handler;
+    if (name == null) {
+      _defaultMethodHandler = handler;
+    } else if (handler == null) {
+      _methodHandlers.remove(name);
+    } else {
+      _methodHandlers[name] = handler;
+    }
+  }
+
+  bool _methodSubscriptionNeeded(_MethodRegistration registration) =>
+      registration.handler != null ||
+      _methodHandlers.keys.any((name) => name != registration.name) ||
+      (registration.name != null && _defaultMethodHandler != null);
+
+  void _processMethodRegistrations() {
+    // Recovery and cancelled wire exchanges do not hold C#'s local handler
+    // semaphore. They still reserve the transport until their ACK arrives.
+    if (_closed) return;
+    final activeRegistration = _attempt?.methodAction?.operation;
+    if (activeRegistration != null &&
+        !activeRegistration.completion.isCompleted) {
+      return;
+    }
+    for (final operation in _pending.toList()) {
+      if (operation.kind != .methodSubscription ||
+          operation.completion.isCompleted) {
+        continue;
+      }
+      final registration = operation.methodRegistration!;
+      // C# removes the delegate before awaiting DisableMethodsAsync. Failure or
+      // cancellation of that exchange does not restore the removed delegate.
+      if (registration.handler == null) _applyMethodRegistration(registration);
+      final subscribe = _methodSubscriptionNeeded(registration);
+      if (_methodsEnabled == subscribe ||
+          (_connected &&
+              _attempt?.methodAction == null &&
+              _attempt?.methodsSubscribed == subscribe)) {
+        _methodsEnabled = subscribe;
+        _applyMethodRegistration(registration);
+        operation.completion.complete(null);
+        _release(operation);
+        continue;
+      }
+      final attempt = _attempt;
+      if (_connected && attempt != null && attempt.methodAction == null) {
+        _startMethodAction(attempt, subscribe: subscribe, operation: operation);
+      }
+      return;
+    }
+  }
+
+  void _startMethodAction(
+    _Attempt attempt, {
+    required bool subscribe,
+    _Operation? operation,
+  }) {
+    final action = _MethodAction(subscribe, operation);
+    attempt.methodAction = action;
+    if (operation == null) {
+      action.deadline = schedule(connectionTimeout, () => _lost(attempt));
+    }
+    try {
+      operation?.completion.markSubmitted();
+      if (subscribe) {
+        if (attempt.transport.subscribe(_methodTopic, .atLeastOnce) == null) {
+          _lost(attempt);
+        }
+      } else {
+        attempt.transport.unsubscribe(_methodTopic, expectAcknowledge: true);
+      }
+    } catch (_) {
+      _lost(attempt);
+    }
+  }
+
+  void _completeMethodAction(_Attempt attempt, {required bool subscribed}) {
+    final action = attempt.methodAction;
+    if (action == null || action.subscribe != subscribed) return;
+    action.deadline?.cancel();
+    attempt.methodAction = null;
+    attempt.methodsSubscribed = subscribed;
+    final operation = action.operation;
+    if (operation != null) {
+      if (!operation.completion.isCompleted) {
+        _methodsEnabled = subscribed;
+        _applyMethodRegistration(operation.methodRegistration!);
+        operation.completion.complete(null);
+      }
+      _release(operation);
+    }
+    if (!_connected) {
+      _restoreSubscriptions(attempt);
+    } else {
+      _flush();
+    }
+  }
+
+  void _receiveMethod(
+    _Attempt attempt,
+    String topic,
+    MqttPublishMessage publish,
+  ) {
+    final route = parseMethodTopic(topic);
+    if (route == null) throw const FormatException('Invalid method topic.');
+    final (name, requestId) = route;
+    final payload = publish.payload.message;
+    final size = payload.length + utf8.encode(topic).length;
+    if (_methodCallCount >= maxPending ||
+        _methodCallBytes + size > maxPendingBytes) {
+      // Reject before retaining the payload. Release any MQTT QoS 1 reservation
+      // immediately; only the bounded outgoing 503 response can remain.
+      _ackMethodRequest(attempt, publish);
+      unawaited(_replyToMethod(attempt, null, requestId, .new(503)));
+      return;
+    }
+    _methodCallCount++;
+    _methodCallBytes += size;
+    unawaited(_dispatchMethod(attempt, publish, name, requestId, size));
+  }
+
+  Future<void> _dispatchMethod(
+    _Attempt attempt,
+    MqttPublishMessage publish,
+    String name,
+    String requestId,
+    int size,
+  ) async {
+    try {
+      // C# takes the registration semaphore before selecting a handler. Keep
+      // early requests bounded while a registration is waiting for its ACK.
+      while (!_closed) {
+        final registration = _pending
+            .where(
+              (operation) =>
+                  operation.kind == .methodSubscription &&
+                  !operation.completion.isCompleted,
+            )
+            .firstOrNull;
+        if (registration == null) break;
+        try {
+          await registration.completion.future;
+        } on OperationFailure {
+          // Route using the state left by the completed/cancelled registration.
+        }
+      }
+      if (_closed) return;
+      MethodResponse response;
+      try {
+        validateMethodPayload(publish.payload.message);
+      } catch (_) {
+        await _replyToMethod(attempt, publish, requestId, .new(400));
+        return;
+      }
+      final handler = _methodHandlers[name] ?? _defaultMethodHandler;
+      if (handler == null) {
+        response = .new(501);
+      } else {
+        try {
+          response = await handler(.new(name, publish.payload.message));
+        } catch (_) {
+          // C# returns 500 for user-code failures, including invalid results.
+          response = .new(500);
+        }
+      }
+      if (!_closed) await _replyToMethod(attempt, publish, requestId, response);
+    } finally {
+      // Retain this reservation across reconnect and until application work
+      // actually settles. A deadline must not admit unbounded abandoned handlers.
+      _methodCallCount--;
+      _methodCallBytes -= size;
+    }
+  }
+
+  Future<void> _replyToMethod(
+    _Attempt attempt,
+    MqttPublishMessage? publish,
+    String requestId,
+    MethodResponse response,
+  ) async {
+    try {
+      if (_closed) return;
+      await _submit(
+        .methodResponse,
+        null,
+        null,
+        methodRequestId: requestId,
+        methodResponse: response,
+      );
+      _ackMethodRequest(attempt, publish);
+    } on OperationFailure catch (error) {
+      if (!identical(_attempt, attempt)) return;
+      if (error.reason == .capacity) {
+        // Drop an overloaded QoS 1 request too, so mqtt_client cannot retain an
+        // unbounded acknowledgement queue. The service caller will time out.
+        _ackMethodRequest(attempt, publish);
+      } else {
+        _lost(attempt);
+      }
+    } catch (_) {
+      _lost(attempt);
+    }
+  }
+
+  void _ackMethodRequest(_Attempt attempt, MqttPublishMessage? publish) {
+    if (publish == null || !identical(_attempt, attempt)) return;
+    try {
+      attempt.transport.acknowledgeQos1Message(publish);
+    } catch (_) {
+      _lost(attempt);
     }
   }
 
@@ -614,6 +905,7 @@ final class InternalClient {
     _connected = false;
     attempt.deadline?.cancel();
     attempt.desiredAction?.deadline?.cancel();
+    attempt.methodAction?.deadline?.cancel();
     unawaited(attempt.subscription?.cancel());
     unawaited(attempt.updates?.cancel());
     attempt.transport.retire();
@@ -684,6 +976,8 @@ final class InternalClient {
     if (_closed) return;
     _closed = true;
     _desiredCallback = null;
+    _methodHandlers.clear();
+    _defaultMethodHandler = null;
     _retry?.cancel();
     _retry = null;
     _authenticationDeadline?.cancel();
@@ -705,18 +999,31 @@ final class _Attempt(final MqttTransport transport) {
   StreamSubscription<List<MqttReceivedMessage<MqttMessage>>>? updates;
   bool desiredSubscribed = false;
   _DesiredAction? desiredAction;
+  bool methodsSubscribed = false;
+  _MethodAction? methodAction;
 }
 
 final class _DesiredAction(final bool subscribe, final _Operation? operation) {
   Timer? deadline;
 }
 
+final class _MethodAction(final bool subscribe, final _Operation? operation) {
+  Timer? deadline;
+}
+
+final class _MethodRegistration(
+  final String? name,
+  final MethodCallback? handler,
+);
+
 enum _OperationKind {
   open,
   telemetry,
   twinGet,
   twinPatch,
-  desiredSubscription;
+  desiredSubscription,
+  methodSubscription,
+  methodResponse;
 
   bool get isTwin => this == twinGet || this == twinPatch;
 }
@@ -728,6 +1035,7 @@ final class _Operation(
   final int size,
   final PendingOperation<TwinProperties?> completion, {
   final DesiredPropertyUpdateCallback? desiredCallback,
+  final _MethodRegistration? methodRegistration,
 }) {
   int? packetId;
   String? requestId;

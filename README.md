@@ -21,11 +21,11 @@ validation coverage and remaining gaps.
 | Read device twin properties | Implemented | Desired and reported properties as Dart maps |
 | Update reported properties | Implemented | JSON patches, including deletion with `null` |
 | Desired-property callbacks | Implemented | Patches and subscription recovery; application owns reconciliation |
+| Direct methods | Implemented | Named/default async handlers, responses and subscription recovery |
 | Retry and reconnect | Implemented | Transient failures; bounded pending work, no offline persistence |
 | Connection-status callbacks | Implemented | Connection, recovery and shutdown notifications |
 | Cancellation and timeouts | Implemented | SDK-owned tokens; finite timeout across retries |
 | Cloud-to-device messages | Not implemented | |
-| Direct methods | Not implemented | |
 | X.509 authentication | Not implemented | |
 | File upload | Not implemented | |
 | Module clients | Not implemented | |
@@ -67,6 +67,13 @@ disconnects. See the [authentication notes](docs/upstream.md#internal-authentica
 `setDesiredPropertyUpdateCallback` receives patches and accepts null to unsubscribe.
 Applications own snapshot retrieval and version reconciliation. See the
 [twin notes](docs/twins.md).
+
+`setMethodHandler(name, handler)` registers an async direct-method handler;
+`setMethodDefaultHandler(handler)` provides a fallback. Return a `MethodResponse`
+with an integer status and optional JSON bytes. Passing null removes a handler.
+Handler execution is application-owned; registration and response sends use finite
+timeouts. See the [example](example/direct_methods_example.dart) and
+[method contract](docs/upstream.md#direct-methods).
 
 Cancellation is optional: pass a `CancellationTokenSource`'s `token` and call
 `source.cancel()`. Every operation retains a finite timeout, four minutes by

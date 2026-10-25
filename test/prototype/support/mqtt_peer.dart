@@ -177,14 +177,18 @@ final class MqttPeer {
     await sendBytes([0xb0, 2, id >> 8, id & 255]);
   }
 
-  Future<void> publish(String topic, List<int> payload, {int id = 1}) async {
+  Future<void> publish(
+    String topic,
+    List<int> payload, {
+    int id = 1,
+    int qos = 1,
+  }) async {
     final name = utf8.encode(topic);
     final body = [
       name.length >> 8,
       name.length & 255,
       ...name,
-      id >> 8,
-      id & 255,
+      if (qos != 0) ...[id >> 8, id & 255],
       ...payload,
     ];
     final length = <int>[];
@@ -195,7 +199,7 @@ final class MqttPeer {
       if (remaining > 0) digit |= 128;
       length.add(digit);
     } while (remaining > 0);
-    await sendBytes([0x32, ...length, ...body]);
+    await sendBytes([0x30 | (qos << 1), ...length, ...body]);
   }
 
   Future<void> puback(int id) async {

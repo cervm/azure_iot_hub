@@ -12,4 +12,6 @@
 - Add SDK-owned cancellation tokens, finite operation deadlines, transient retries,
   bounded pending work and explicit delivery uncertainty.
 - Add connection-status callbacks for connection, recovery and shutdown.
+- Handle direct methods with named/default async callbacks, bounded incoming work,
+  response retries and subscription recovery.
 - Include adapted C# tests, deterministic lifecycle tests and opt-in IoT Hub tests.

@@ -30,6 +30,10 @@
   C# subscription-flag defect by agreement.
 - Follow C# MQTT SAS renewal: refresh cached credentials when requested within
   the renewal window; do not schedule proactive disconnects.
+- Follow C# direct-method dispatch with named/default async handlers and byte
+  payloads. The application owns handler timeouts. Bound incoming calls separately
+  using the existing count/byte limits; overload returns 503 when response capacity
+  permits, otherwise the cloud caller times out. This is an agreed overload policy.
 - Always enforce a finite operation timeout, including when a caller supplies a
   cancellation token. Default to four minutes; include reconnect waits and retries
   in the same deadline. This is an agreed deviation from C# token precedence.

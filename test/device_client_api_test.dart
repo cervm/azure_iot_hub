@@ -117,6 +117,59 @@ void transportTests(MqttTransportType transport) {
   }
 
   test(
+    'public direct-method API registers, responds and removes handlers',
+    () async {
+      Future<int> subscriptionId({bool subscribe = true}) async {
+        final packet = await server.peers.single.nextPacket(subscribe ? 8 : 10);
+        final length = (packet.body[2] << 8) | packet.body[3];
+        expect(
+          utf8.decode(packet.body.sublist(4, 4 + length)),
+          r'$iothub/methods/POST/#',
+        );
+        return (packet.body[0] << 8) | packet.body[1];
+      }
+
+      final registering = client.setMethodHandler(
+        'echo',
+        (request) async => MethodResponse(200, result: request.data),
+      );
+      final peer = await accept();
+      await peer.suback(await subscriptionId());
+      await registering;
+      await client.setMethodDefaultHandler((_) async => .new(501));
+      for (final (name, status, body) in [
+        ('echo', 200, '{"value":1}'),
+        ('unknown', 501, ''),
+      ]) {
+        await peer.publish(
+          '${r'$iothub/methods/POST/'}$name/?${r'$rid=abc'}',
+          utf8.encode('{"value":1}'),
+          qos: 0,
+        );
+        final response = await peer.nextPacket(3);
+        expect(
+          response.topic,
+          '${r'$iothub/methods/res/'}$status/?${r'$rid=abc'}',
+        );
+        expect(
+          utf8.decode(
+            response.body.sublist(utf8.encode(response.topic).length + 4),
+          ),
+          body,
+        );
+        await peer.puback(response.packetId);
+        // A twin response/ACK exchange ensures the preceding PUBACK was processed.
+        await peer.publish(r'$iothub/twin/res/200/?$rid=unknown', []);
+        await peer.nextPacket(4);
+      }
+      await client.setMethodHandler('echo', null);
+      final removing = client.setMethodDefaultHandler(null);
+      await peer.unsuback(await subscriptionId(subscribe: false));
+      await removing;
+    },
+  );
+
+  test(
     'public operations send telemetry and exchange twin properties',
     () async {
       final changes = <(ConnectionStatus, ConnectionStatusChangeReason)>[];

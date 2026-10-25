@@ -15,7 +15,7 @@ Verified on 24 October 2026:
 ## Source/test map
 
 These are reference points for the SDK. Public API, prototype, authentication,
-telemetry, WSS and twin operation coverage are listed below.
+telemetry, WSS, twin, direct-method and connection-status coverage are listed below.
 
 | Behaviour | C# reference at the pinned commit | Dart coverage |
 | --- | --- | --- |
@@ -66,7 +66,8 @@ telemetry, WSS and twin operation coverage are listed below.
 ## Public device API
 
 The package exports [DeviceClient](../lib/src/device_client.dart), its message,
-twin, cancellation and failure types, `MqttTransportType` and `SasTokenProvider`.
+twin, method, connection-status, cancellation and failure types, `MqttTransportType`
+and `SasTokenProvider`.
 `DeviceClient.fromConnectionString` corresponds to C# `CreateFromConnectionString`;
 `withTokenProvider` exposes the existing asynchronous credential acquisition.
 Named constructors and `Future` methods without an `Async` suffix adapt the API to
@@ -100,7 +101,8 @@ exercise telemetry, GET/PATCH, desired callbacks, SAS providers, cancellation,
 capacity and service failure status over controlled TLS and WSS peers. Lifecycle
 races remain covered by the existing deterministic internal suites. The live tests
 and [example](../example/azure_iot_hub_example.dart) now use the public import;
-the public API migration has not yet been run against a real hub.
+the telemetry/twin tests have not yet been rerun against a real hub. The later
+public direct-method example passed a user-run live check; see [direct methods](#direct-methods).
 
 ## Connection-status callbacks
 
@@ -362,6 +364,71 @@ not await its returned Task; Dart likewise acknowledges after synchronous dispat
 without awaiting application futures. C#'s transport closes on synchronous dispatch
 failure, and its retry handler restores subscriptions; the Dart tests preserve that
 sequence. The application owns asynchronous work and its error handling.
+
+## Direct methods
+
+The public API follows C#'s `MethodRequest`, `MethodResponse`, `MethodCallback`,
+`SetMethodHandlerAsync` and `SetMethodDefaultHandlerAsync`. Dart uses async callbacks
+and closures instead of `userContext`. Request/response bytes are copied and exposed
+as unmodifiable lists; JSON-string getters retain null for absent/empty bodies.
+The module-invocation timeout fields on C# `MethodRequest` are outside the supported
+device API. Status is an application-defined integer.
+
+First registration subscribes to `$iothub/methods/POST/#` at QoS 1 and waits for
+SUBACK. Named handlers take precedence over the default, and replacement needs no
+wire exchange. Removing the last handler waits for UNSUBACK. Unlike desired-property
+callbacks, C# removes a method delegate locally before awaiting unsubscribe; Dart
+preserves that removal on failure/cancellation, including while reconnect is
+restoring the subscription. Failed first registration does not
+install a handler. Late ACKs reconcile the acknowledged wire state with the
+committed subscription flag. Reconnect restores methods and desired subscriptions
+before reporting connected or resuming outgoing work.
+
+Requests are routed using their method name and `$rid`. Empty or valid JSON invokes
+the handler; invalid payloads return 400, unmatched names return 501, and handler
+exceptions or invalid results return 500. Responses publish at QoS 1 to
+`$iothub/methods/res/{status}/?$rid={id}` and complete at PUBACK. Response retries keep
+the original request ID and bytes without invoking the handler again. Methods
+normally arrive at QoS 0; incoming QoS 1 is also supported and acknowledged after
+response completion, as in C#. Malformed method topics retire the connection
+without invoking application code. SDK errors exclude payloads and handler
+exception contents.
+
+**Protocol constraints:** IoT Hub requires JSON request/response bodies up to
+128 KiB; empty bodies remain supported as in C#. Dart validates UTF-8 and standard
+JSON, without reproducing Newtonsoft's permissive extensions. The service limit
+is enforced even though C#'s generic MQTT payload limit is larger. See Microsoft's
+[direct-method contract](https://learn.microsoft.com/en-us/azure/iot-hub/iot-hub-devguide-direct-methods#handle-a-direct-method-on-a-device).
+
+**Agreed lifetime and overload policy:** application handlers have no SDK execution
+timeout and may overlap, following C#. Incoming calls have separate `maxPending`
+and `maxPendingBytes` budgets (defaults: 16 calls and 4 MiB of payload/topic bytes).
+Reservations include requests waiting for registration and remain until handler
+execution and response sending settle, including across reconnect. These are work
+budgets, not exact process-memory limits. Responses share the existing outgoing
+budget and finite operation deadline. Excess incoming calls receive 503 if response
+capacity permits; otherwise they are dropped and the cloud caller times out.
+Rejected QoS 1 calls are acknowledged immediately to release their payloads.
+There is no unbounded incoming queue or forced cancellation of application work.
+Registration tokens do not cancel accepted handlers. Close does not await handlers;
+late results/errors are consumed without sending or reopening the client.
+
+| Responsibility | Pinned C# reference | Dart coverage |
+| --- | --- | --- |
+| Request/response data and JSON validation | `iothub/device/src/DirectMethod/MethodRequest.cs`, `MethodResponse.cs`; `src/Common/Utils.cs` | [Types](../lib/src/direct_method.dart), [data tests](../test/direct_method_test.dart) |
+| Named/default registration, removal and dispatch | `iothub/device/src/InternalClient.cs`: `SetMethodHandlerAsync`, `SetMethodDefaultHandlerAsync`, `OnMethodCalledAsync`; `iothub/device/tests/DeviceClientTests.cs` | [Internal client](../lib/src/internal_client.dart); named adaptations of first-registration, replacement, removal, empty/invalid JSON, default precedence and missing-handler cases in [transport tests](../test/transport/direct_methods_test.dart) |
+| Subscription ACKs, response topic and cancellation | `iothub/device/src/Transport/Mqtt/MqttTransportHandler.cs`; corresponding `MqttTransportHandlerTests.cs` | TLS/WSS subscription, PUBACK and pre-cancellation adaptations in the same transport suite |
+| Recovery and response retries | `iothub/device/src/Pipeline/RetryDelegatingHandler.cs`: `EnableMethodsAsync`, `DisableMethodsAsync`, `SendMethodResponseAsync`, `HandleDisconnectAsync` | Subscription restoration, retry correlation and original response deadline tests |
+
+Dart-specific cases cover early requests, cancellation/late-ACK races, handler
+failures, incoming count/byte limits, saturated response queues, reentrant callbacks
+and close with unfinished application work. [Public API tests](../test/device_client_api_test.dart)
+exercise the exported types and both registration methods over TLS and WSS.
+Rejected method SUBACKs use the existing protocol-error policy. On 25 October 2026,
+the user reported the [manual example](../example/direct_methods_example.dart)
+worked over MQTT/TLS: the named handler returned 200 with `{"ready":true}`, and the
+default handler returned 501 for an unregistered method. Live WSS method calls,
+overload handling and method subscription recovery remain unverified.
 
 ## Upstream maintenance
 

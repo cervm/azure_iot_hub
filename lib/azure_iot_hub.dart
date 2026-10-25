@@ -10,6 +10,8 @@ export 'src/connection_status.dart'
 export 'src/authentication/iot_hub_connection_string.dart'
     show SasTokenProvider;
 export 'src/device_client.dart' show DeviceClient;
+export 'src/direct_method.dart'
+    show MethodCallback, MethodRequest, MethodResponse;
 export 'src/pending_operation.dart'
     show DeliveryState, OperationFailure, OperationFailureReason;
 export 'src/telemetry_message.dart' show TelemetryMessage;
