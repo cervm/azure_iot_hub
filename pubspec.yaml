@@ -16,7 +16,7 @@ dependencies:
   mqtt_client:
     git:
       url: https://github.com/cervm/mqtt_client.git
-      ref: e9baef8c848f3ada77b1f02750adf479ab8b3f0d
+      ref: 29efbfa768dfc23102a07fe159057a898f426810
   typed_data: ^1.4.0
   uuid: ^4.6.0
 

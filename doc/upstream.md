@@ -157,14 +157,14 @@ verify exported registration, connection and close notifications.
 ## MQTT dependency
 
 The package pins the `mqtt_client` fork at
-[`e9baef8`](https://github.com/cervm/mqtt_client/commit/e9baef8c848f3ada77b1f02750adf479ab8b3f0d),
+[`29efbfa`](https://github.com/cervm/mqtt_client/commit/29efbfa768dfc23102a07fe159057a898f426810),
 based on 10.13.0. It prevents reuse of packet identifiers awaiting protocol
 completion, following [MQTT 3.1.1 §2.3.1](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718025)
 (MQTT-2.3.1-2 and MQTT-2.3.1-3). It preserves the original 1–32,767 range,
 `maxMessageIdentifier`, public singleton and normal allocation sequence.
-Exhaustion throws `StateError` before publish/unsubscribe submission; subscribe
-retains its existing null/failure behavior. Confirmed subscriptions retain their
-local map keys without reserving those IDs against later publishes.
+Exhaustion throws `NoMessageIdentifiersException` before publish/unsubscribe
+submission; subscribe retains its existing null/failure behavior. Confirmed
+subscriptions retain their local map keys without reserving those IDs against later publishes.
 
 The fork's tests cover QoS 1/2, subscribe/unsubscribe, identifier exhaustion,
 acknowledgement reuse and client isolation. Rerun the
