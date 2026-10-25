@@ -102,6 +102,59 @@ races remain covered by the existing deterministic internal suites. The live tes
 and [example](../example/azure_iot_hub_example.dart) now use the public import;
 the public API migration has not yet been run against a real hub.
 
+## Connection-status callbacks
+
+`setConnectionStatusChangesHandler` registers one synchronous callback; null removes
+it. Registration/replacement does not replay state. Duplicate status/reason pairs
+are suppressed, including transitions observed while no handler was registered.
+The public enums retain C#'s values with Dart lower-camel-case spelling.
+
+| Transition | Status / reason |
+| --- | --- |
+| Connection and required subscriptions ready | `connected / connectionOk` |
+| Initial transient failure or lost connection with recovery active | `disconnectedRetrying / communicationError` |
+| MQTT credential rejection | `disconnected / badCredential` |
+| Terminal TLS, protocol or provider failure | `disconnected / communicationError` |
+| First explicit close, in any phase | `disabled / clientClose` |
+
+Reconnect reports connected only after response and desired subscriptions have
+been restored. Individual cancellation, twin service errors and operation deadlines
+do not themselves end shared recovery or emit retry exhaustion. If an unacknowledged
+operation's cleanup deadline retires the connection, that actual loss reports
+retrying. Provider timeouts also report retrying while serialized acquisition
+settles; late results after close cannot emit another status.
+
+MQTT CONNACK cannot distinguish an expired SAS or disabled device from other
+authentication failures. The client does not infer `expiredSasToken`,
+`deviceDisabled` or `noNetwork`. Its default transient retry policy has no finite
+attempt limit, so it does not emit `retryExpired` when an individual caller times
+out. Those enum values remain for C# API parity.
+
+**Agreed callback deviation:** status handlers run in their registering Dart Zone.
+Synchronous exceptions follow that zone's uncaught-error handling without entering
+the SDK retry pipeline. C# invokes the handler directly and lets exceptions propagate
+into connection processing. Returned application futures are not awaited.
+
+**Agreed close deviation:** the first close emits `disabled/clientClose` even
+before connection or during recovery, and releases the handler after dispatch.
+C#'s notification depends on the active transport watcher/recovery path. Repeated
+close is silent. State is committed before dispatch so callback-triggered close or
+handler replacement cannot be overwritten by an outer notification. No notification
+queue or additional timer is introduced.
+
+| Responsibility | Pinned C# reference | Dart coverage |
+| --- | --- | --- |
+| Enums and registration/deduplication | `iothub/device/src/ConnectionStatus.cs`, `ConnectionStatusChangeReason.cs`, `InternalClient.SetConnectionStatusChangesHandler`, `OnConnectionStatusChanged` | [Status types](../lib/src/connection_status.dart), `InternalClient._changeConnectionStatus` |
+| Initial open, recovery, failure classification and close | `iothub/device/src/Pipeline/RetryDelegatingHandler.cs`: `OpenInternalAsync`, `HandleDisconnectAsync`, `HandleConnectionStatusExceptions` | [Internal client](../lib/src/internal_client.dart), controlled TLS/WSS transitions |
+| Open notification, null handler, duplicate suppression and connection loss | `iothub/device/tests/DeviceClientTests.cs`: four `DeviceClientOnConnection...` cases | Named adaptations in [status tests](../test/transport/connection_status_test.dart); the synthetic upstream `No_Network` case uses the runtime MQTT `communicationError` here |
+| Transient initial-open retry | `iothub/device/tests/Pipeline/RetryDelegatingHandlerTests.cs`: `RetryDelegatingHandler_OpenAsyncRetries` | Named transport adaptation with controlled CONNACK failures |
+
+Dart-specific cases cover subscription recovery, terminal failures, handler Zones,
+reentrant send/close/replacement, slow providers, operation cancellation/deadlines,
+and late completion after shutdown. [Public API tests](../test/device_client_api_test.dart)
+verify exported registration, connection and close notifications. No live status
+callback or reconnect test has been run yet.
+
 ## Prototype coverage
 
 [mqtt_cancellation_test.dart](../test/prototype/mqtt_cancellation_test.dart) adapts

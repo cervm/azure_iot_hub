@@ -14,6 +14,7 @@ import 'package:typed_data/typed_buffers.dart';
 import 'authentication/iot_hub_connection_string.dart';
 import 'authentication/sas_token_cache.dart';
 import 'cancellation.dart';
+import 'connection_status.dart';
 import 'pending_operation.dart';
 import 'telemetry_message.dart';
 import 'transport/connection_diagnostics.dart';
@@ -78,6 +79,11 @@ final class InternalClient {
   bool _connected = false;
   bool _closed = false;
   bool _recoveryStopped = false;
+  ConnectionStatusChangesHandler? _connectionStatusHandler;
+  (ConnectionStatus, ConnectionStatusChangeReason) _connectionStatus = (
+    .disconnected,
+    .clientClose,
+  );
   DesiredPropertyUpdateCallback? _desiredCallback;
   static const _desiredTopic = r'$iothub/twin/PATCH/properties/desired/#';
   static const _desiredPrefix = r'$iothub/twin/PATCH/properties/desired/';
@@ -85,6 +91,26 @@ final class InternalClient {
   int get pendingCount => _pending.length;
   int get pendingBytes => _pendingBytes;
   bool get isConnected => _connected;
+
+  void setConnectionStatusChangesHandler(
+    ConnectionStatusChangesHandler? handler,
+  ) {
+    _connectionStatusHandler = handler == null
+        ? null
+        : Zone.current.bindBinaryCallbackGuarded(handler);
+  }
+
+  void _changeConnectionStatus(
+    ConnectionStatus status,
+    ConnectionStatusChangeReason reason,
+  ) {
+    final next = (status, reason);
+    if (_connectionStatus == next) return;
+    // Commit before invoking user code: a handler can close the client or replace
+    // itself synchronously, and the outer notification must not overwrite that.
+    _connectionStatus = next;
+    _connectionStatusHandler?.call(status, reason);
+  }
 
   Future<void> open({CancellationToken? cancellationToken}) =>
       _submit(.open, null, cancellationToken);
@@ -256,7 +282,11 @@ final class InternalClient {
     final deadline = schedule(connectionTimeout, () {
       timedOut = true;
       connectionDiagnostics.recordFailure(OperationFailureReason.timeout);
-      if (current != null) _lost(current);
+      if (current != null) {
+        _lost(current);
+      } else if (!_closed) {
+        _changeConnectionStatus(.disconnectedRetrying, .communicationError);
+      }
     });
     _authenticationDeadline = deadline;
     try {
@@ -357,8 +387,7 @@ final class InternalClient {
       };
       transport.onSubscribeFail = (_) {
         if (_closed || !identical(_attempt, attempt)) return;
-        _stopRecovery(.protocol);
-        _lost(attempt);
+        _lost(attempt, failureReason: .protocol);
       };
       connectionDiagnostics.stage = .twinSubscription;
       if (transport.subscribe(r'$iothub/twin/res/#', .atLeastOnce) == null) {
@@ -375,9 +404,11 @@ final class InternalClient {
           _stopRecovery(.tls);
         } else if (error is TimeoutException) {
           connectionDiagnostics.recordFailure(OperationFailureReason.timeout);
+          _changeConnectionStatus(.disconnectedRetrying, .communicationError);
         } else if (error is IOException ||
             error is cancellation.CancelledException) {
           connectionDiagnostics.recordFailure(TransportFailureKind.network);
+          _changeConnectionStatus(.disconnectedRetrying, .communicationError);
         } else {
           connectionDiagnostics.recordFailure(
             OperationFailureReason.authentication,
@@ -402,7 +433,8 @@ final class InternalClient {
     _connected = true;
     connectionDiagnostics.stage = .ready;
     _retryCount = 0;
-    _flush();
+    _changeConnectionStatus(.connected, .connectionOk);
+    if (!_closed && identical(_attempt, attempt)) _flush();
   }
 
   void _startDesiredAction(
@@ -576,7 +608,7 @@ final class InternalClient {
     });
   }
 
-  void _lost(_Attempt attempt) {
+  void _lost(_Attempt attempt, {OperationFailureReason? failureReason}) {
     if (!identical(_attempt, attempt)) return;
     _attempt = null;
     _connected = false;
@@ -592,17 +624,31 @@ final class InternalClient {
       if (operation.completion.isCompleted) _release(operation);
     }
     final failure = attempt.transport.failure;
-    if (failure != null && !failure.isTransient) {
-      _stopRecovery(switch (failure.kind) {
-        .authentication => .authentication,
-        .tls => .tls,
-        _ => .protocol,
-      });
+    if (_closed) return;
+    if (failureReason != null) {
+      _stopRecovery(failureReason);
+    } else if (failure != null && !failure.isTransient) {
+      _stopRecovery(
+        switch (failure.kind) {
+          .authentication => .authentication,
+          .tls => .tls,
+          _ => .protocol,
+        },
+        statusReason: failure.kind == .authentication
+            ? .badCredential
+            : .communicationError,
+      );
+    } else {
+      // Reserve backoff before calling user code, which may submit more work.
+      _scheduleRetry();
+      _changeConnectionStatus(.disconnectedRetrying, .communicationError);
     }
-    _scheduleRetry();
   }
 
-  void _stopRecovery(OperationFailureReason reason) {
+  void _stopRecovery(
+    OperationFailureReason reason, {
+    ConnectionStatusChangeReason statusReason = .communicationError,
+  }) {
     _recoveryStopped = true;
     _retry?.cancel();
     _retry = null;
@@ -610,6 +656,7 @@ final class InternalClient {
       operation.completion.fail(reason);
       _release(operation);
     }
+    _changeConnectionStatus(.disconnected, statusReason);
   }
 
   void _scheduleRetry() {
@@ -647,6 +694,8 @@ final class InternalClient {
     for (final operation in _pending.toList()) {
       _release(operation);
     }
+    _changeConnectionStatus(.disabled, .clientClose);
+    _connectionStatusHandler = null;
   }
 }
 

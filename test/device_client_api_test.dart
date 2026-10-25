@@ -119,7 +119,12 @@ void transportTests(MqttTransportType transport) {
   test(
     'public operations send telemetry and exchange twin properties',
     () async {
+      final changes = <(ConnectionStatus, ConnectionStatusChangeReason)>[];
+      client.setConnectionStatusChangesHandler((status, reason) {
+        changes.add((status, reason));
+      });
       expect(client.isConnected, isFalse);
+      expect(changes, isEmpty);
       expect(server.peers, isEmpty);
       final sending = client.sendEvent(
         .new(utf8.encode('sample'), messageId: 'public-api'),
@@ -139,6 +144,9 @@ void transportTests(MqttTransportType transport) {
       await peer.puback(telemetry.packetId);
       await sending;
       expect(client.isConnected, isTrue);
+      expect(changes, [
+        (ConnectionStatus.connected, ConnectionStatusChangeReason.connectionOk),
+      ]);
 
       final getting = client.getTwin();
       final get = await peer.nextPacket(3);
@@ -191,6 +199,10 @@ void transportTests(MqttTransportType transport) {
       await client.close();
       await client.close();
       expect(client.isConnected, isFalse);
+      expect(changes, [
+        (ConnectionStatus.connected, ConnectionStatusChangeReason.connectionOk),
+        (ConnectionStatus.disabled, ConnectionStatusChangeReason.clientClose),
+      ]);
       await expectLater(
         client.open(),
         throwsA(failure(.closed, .notSubmitted)),

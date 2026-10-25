@@ -21,6 +21,9 @@
   keep dependency types private. Avoid a speculative cancellation framework.
 - Follow C# retry/reconnect behaviour: a transient disconnect does not immediately
   fail a send; cancelling one operation does not stop client recovery.
+- Report connection-status handler errors to their registering Dart Zone without
+  interrupting recovery. The first close always reports disabled/clientClose.
+  These are agreed deviations from C# callback and shutdown behaviour.
 - Follow C# desired-property behaviour: deliver patches and restore subscriptions.
   Snapshot retrieval and version reconciliation belong to the device application.
   Re-registering after removal must subscribe again; this corrects the pinned

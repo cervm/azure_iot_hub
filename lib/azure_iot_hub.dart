@@ -2,6 +2,11 @@
 library;
 
 export 'src/cancellation.dart' show CancellationToken, CancellationTokenSource;
+export 'src/connection_status.dart'
+    show
+        ConnectionStatus,
+        ConnectionStatusChangeReason,
+        ConnectionStatusChangesHandler;
 export 'src/authentication/iot_hub_connection_string.dart'
     show SasTokenProvider;
 export 'src/device_client.dart' show DeviceClient;

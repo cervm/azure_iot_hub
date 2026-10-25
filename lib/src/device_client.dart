@@ -1,10 +1,12 @@
 /// @docImport 'pending_operation.dart';
+/// @docImport 'dart:async';
 library;
 
 import 'dart:io';
 
 import 'authentication/iot_hub_connection_string.dart';
 import 'cancellation.dart';
+import 'connection_status.dart';
 import 'internal_client.dart';
 import 'telemetry_message.dart';
 import 'transport/mqtt_transport_type.dart';
@@ -104,6 +106,19 @@ final class DeviceClient {
   ///
   /// This is a snapshot; subsequent operations can still encounter a disconnect.
   bool get isConnected => _client.isConnected;
+
+  /// Registers or replaces the connection-status handler; `null` removes it.
+  ///
+  /// Registration does not replay the current state. Notifications occur when
+  /// the status or reason changes, independently of individual operations.
+  /// The handler runs synchronously in its registering [Zone]. Handler errors
+  /// are reported to that zone without interrupting connection recovery.
+  /// Asynchronous work started by the handler is not awaited.
+  /// The first [close] reports [ConnectionStatus.disabled] with
+  /// [ConnectionStatusChangeReason.clientClose], then releases the handler.
+  void setConnectionStatusChangesHandler(
+    ConnectionStatusChangesHandler? handler,
+  ) => _client.setConnectionStatusChangesHandler(handler);
 
   /// Opens the connection and subscribes to twin responses.
   Future<void> open({CancellationToken? cancellationToken}) =>

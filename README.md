@@ -50,6 +50,12 @@ and an optional twin response `statusCode`. `DeliveryState.unknown` means a fail
 operation may already have reached the hub; retrying can duplicate its effects.
 See the [public API contract](docs/upstream.md#public-device-api).
 
+`setConnectionStatusChangesHandler((status, reason) { ... })` observes connection,
+recovery and shutdown. Passing null removes the handler; registration does not
+replay the current state. Duplicate status/reason pairs are suppressed. Handler
+errors go to its registering Dart Zone, and the first `close()` always reports
+`disabled/clientClose`. See the [status contract](docs/upstream.md#connection-status-callbacks).
+
 The [runnable example](example/azure_iot_hub_example.dart) reads
 `AZURE_IOT_DEVICE_CONNECTION_STRING`, sends telemetry and retrieves the twin:
 
