@@ -353,6 +353,7 @@ All C# paths below are relative to `iothub/device/` at the pinned commit.
 | --- | --- | --- |
 | CONNECT identity, credentials, persistent session, keepalive and CONNACK mapping | `src/Transport/Mqtt/MqttIotHubAdapter.cs`, `src/Transport/Mqtt/ClientSettings/MqttTransportSettings.cs`, `src/Common/Api/ClientApiVersionHelper.cs` | [Internal client](../lib/src/internal_client.dart), [MQTT adapter](../lib/src/transport/mqtt_transport.dart), [transport tests](../test/transport/device_client_test.dart) |
 | Telemetry topic, system/application properties and byte limits | `MqttIotHubAdapter.PopulateMessagePropertiesFromMessage`, `src/Common/UrlEncodedDictionarySerializer.cs`, `src/Common/Utils.cs` | [Message](../lib/src/telemetry_message.dart), [property tests](../test/telemetry_message_test.dart), binary wire tests over both transports |
+| Unsupported incoming publish QoS | `MqttIotHubAdapter.ProcessPublish` | [Transport regression](../test/transport/mqtt_transport_test.dart) rejects QoS 2 before dependency retention or PUBREC; client tests verify terminal protocol failure over both transports |
 | Retry parameters and transient/security failure classification | `src/Pipeline/RetryDelegatingHandler.cs`, `src/Pipeline/ErrorDelegatingHandler.cs`, `src/RetryPolicies/ExponentialBackoff.cs`, `src/TransientFaultHandling/ExponentialBackoffRetryStrategy.cs` | Internal recovery uses 100 ms minimum, 100 ms delta with 80–120% jitter, and a 10 s cap; controlled refusal/disconnect/TLS tests |
 | Pre-cancelled open/send and username without model ID | `tests/Transport/Mqtt/MqttTransportHandlerTests.cs`, `tests/Transport/Mqtt/MqttIotHubAdapterTest.cs` | Named adapted cases over both transports, retaining MIT notices |
 
@@ -366,7 +367,21 @@ message ID, correlation ID, content type and content encoding. Topic serializati
 uses `Uri.EscapeDataString` semantics (not SAS's form encoding), preserves null
 versus empty property values, and keeps system properties on name collisions.
 The trailing property-bag slash and C# MQTT limits (262,143-byte payload,
-65,535-byte topic) are retained. Service quotas also account for message properties.
+65,535-byte topic) are retained. The immutable message also enforces Azure's
+[256-KiB total-message limit](https://learn.microsoft.com/en-us/azure/iot-hub/iot-hub-devguide-quotas-throttling#other-limits)
+at construction, before connection or pending-work reservation. Following the
+[service size calculation](https://learn.microsoft.com/en-us/azure/iot-hub/iot-hub-devguide-messages-construct#message-size),
+this includes the body, effective system-property values and application-property
+names and values after precedence is applied. The existing `$.` system-property
+prefix convention also applies to raw properties. UTF-8 byte counts preserve the
+existing Unicode support; MQTT percent encoding and topic framing are measured
+separately. This adds local service-contract validation to the pinned C# payload
+and topic checks.
+
+Incoming publications support QoS 0 and 1, matching the pinned C# adapter.
+Unsupported QoS retires the connection with a terminal protocol failure before
+dependency dispatch, preventing the separate QoS 2 retention queue from bypassing
+the SDK's incoming storage limits.
 
 Caller cancellation uses the SDK-owned wrappers. Authentication, TLS and protocol
 failures are redacted and non-retryable for the current work; network failures and

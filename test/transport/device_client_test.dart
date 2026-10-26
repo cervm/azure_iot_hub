@@ -700,6 +700,53 @@ void transportTests(MqttTransportType transport) {
     await sending;
   });
 
+  test('oversized telemetry is rejected before connection or reservation', () {
+    expect(
+      () => client.sendEvent(
+        TelemetryMessage(List.filled(262000, 0), properties: {'k': 'x' * 1000}),
+      ),
+      throwsArgumentError,
+    );
+    expect(server.peers, isEmpty);
+    expect(client.pendingCount, 0);
+    expect(client.pendingBytes, 0);
+    expect(time.activeTimers, 0);
+  });
+
+  test('telemetry at the Azure total-size limit is submitted', () async {
+    final peer = await establish();
+    final sending = client.sendEvent(
+      TelemetryMessage(List.filled(262000, 0), properties: {'k': 'x' * 143}),
+    );
+    final packet = await peer.nextPacket(3);
+    expect(packet.topic, 'devices/device-1/messages/events/k=${'x' * 143}/');
+    await peer.puback(packet.packetId);
+    await sending;
+  });
+
+  test(
+    'unsupported incoming QoS fails pending work without recovery',
+    () async {
+      final peer = await establish();
+      final sending = expectLater(
+        client.sendEvent(TelemetryMessage([1])),
+        throwsA(
+          failure(OperationFailureReason.protocol, DeliveryState.unknown),
+        ),
+      );
+      await peer.nextPacket(3);
+      await peer.publish('devices/device-1/messages/devicebound/', [
+        42,
+      ], qos: 2);
+      await sending;
+      await peer.disconnected;
+      expect(client.pendingCount, 0);
+      expect(client.pendingBytes, 0);
+      expect(time.activeTimers, 0);
+      expect(server.peers, hasLength(1));
+    },
+  );
+
   test('broker unavailable retries after C# initial backoff', () async {
     final opening = client.open();
     final first = await server.nextConnection();

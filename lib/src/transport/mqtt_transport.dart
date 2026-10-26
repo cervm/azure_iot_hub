@@ -202,6 +202,14 @@ final class _ConnectionHandler extends MqttConnectionHandlerBase {
       _failed(const FormatException('Expected CONNACK.'));
       return;
     }
+    final message = event.message;
+    if (message is MqttPublishMessage &&
+        message.header!.qos != .atMostOnce &&
+        message.header!.qos != .atLeastOnce) {
+      // Match C# rejection before mqtt_client can retain QoS 2 awaiting PUBREL.
+      _failed(const FormatException('Unsupported incoming MQTT QoS.'));
+      return;
+    }
     _lastReceived = now();
     super.messageAvailable(event);
   }

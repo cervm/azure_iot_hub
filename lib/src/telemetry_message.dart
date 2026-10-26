@@ -11,8 +11,10 @@ final class TelemetryMessage {
   ///
   /// System fields such as [messageId] take precedence over matching application
   /// properties. Null property values are retained and differ from empty strings.
-  /// Payloads larger than 262143 bytes throw [ArgumentError]; encoded topic limits
-  /// are checked when the message is submitted to a client.
+  /// Throws [ArgumentError] for payloads larger than 262143 bytes or total message
+  /// sizes above 262144 bytes. The total includes UTF-8 system-property values
+  /// and application-property names and values after merging. Keys starting with
+  /// `$.` identify system properties. Encoded topic limits are checked on submission.
   TelemetryMessage(
     List<int> payload, {
     Map<String, String?> properties = const {},
@@ -33,6 +35,16 @@ final class TelemetryMessage {
     };
     for (final entry in properties.entries) {
       _properties.putIfAbsent(entry.key, () => entry.value);
+    }
+    var size = this.payload.length;
+    for (final MapEntry(:key, :value) in _properties.entries) {
+      if (!key.startsWith(r'$.')) size += utf8.encode(key).length;
+      if (value != null) size += utf8.encode(value).length;
+      if (size > 0x40000) {
+        throw ArgumentError(
+          'Telemetry message exceeds the IoT Hub size limit.',
+        );
+      }
     }
   }
 

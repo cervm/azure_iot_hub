@@ -58,4 +58,75 @@ void main() {
       throwsArgumentError,
     );
   });
+
+  test('Azure limit includes application property names and values', () {
+    expect(
+      () => TelemetryMessage(Uint8List(262000), properties: {'k': 'x' * 1000}),
+      throwsArgumentError,
+    );
+    expect(
+      TelemetryMessage(Uint8List(262000), properties: {'k': 'x' * 143}),
+      isA<TelemetryMessage>(),
+    );
+    expect(
+      () => TelemetryMessage(Uint8List(262000), properties: {'k': 'x' * 144}),
+      throwsArgumentError,
+    );
+  });
+
+  test('Azure limit counts effective system values without their names', () {
+    TelemetryMessage make(int bodySize) => TelemetryMessage(
+      Uint8List(bodySize),
+      messageId: 'm',
+      correlationId: 'c',
+      contentType: 't',
+      contentEncoding: 'e',
+      properties: {r'$.mid': 'ignored' * 1000},
+    );
+    expect(make(262140), isA<TelemetryMessage>());
+    expect(() => make(262141), throwsArgumentError);
+  });
+
+  test('raw system properties use the same Azure size accounting', () {
+    expect(
+      TelemetryMessage(Uint8List(262143), properties: {r'$.mid': 'm'}),
+      isA<TelemetryMessage>(),
+    );
+    expect(
+      () => TelemetryMessage(Uint8List(262143), properties: {r'$.mid': 'mm'}),
+      throwsArgumentError,
+    );
+  });
+
+  for (final value in [null, '']) {
+    test('Azure limit counts a property name with value $value', () {
+      expect(
+        TelemetryMessage(Uint8List(262143), properties: {'k': value}),
+        isA<TelemetryMessage>(),
+      );
+      expect(
+        () => TelemetryMessage(Uint8List(262143), properties: {'kk': value}),
+        throwsArgumentError,
+      );
+    });
+  }
+
+  test('Azure size uses UTF-8 bytes before MQTT percent encoding', () {
+    expect(
+      TelemetryMessage(Uint8List(262138), properties: {'☕': '☕'}),
+      isA<TelemetryMessage>(),
+    );
+    expect(
+      () => TelemetryMessage(Uint8List(262139), properties: {'☕': '☕'}),
+      throwsArgumentError,
+    );
+    expect(
+      TelemetryMessage(Uint8List(262141), messageId: '☕'),
+      isA<TelemetryMessage>(),
+    );
+    expect(
+      () => TelemetryMessage(Uint8List(262142), messageId: '☕'),
+      throwsArgumentError,
+    );
+  });
 }
