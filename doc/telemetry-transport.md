@@ -7,7 +7,7 @@ A successful send means PUBACK arrived; cancellation or failure after submission
 reports unknown delivery.
 Retries can produce duplicate telemetry, as with C# QoS 1 sends.
 
-`MqttTransport` retains the pinned fork's codec, packet identifiers and publish
+`MqttTransport` reuses `mqtt_client`'s codec, packet identifiers and publish
 acknowledgement handling. Both connection adapters share a bounded MQTT decoder
 and an owned `RawSocket` through the TLS handshake, including partial reads/writes.
 The two upstream paths that log CONNECT credentials are bypassed, including when

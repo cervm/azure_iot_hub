@@ -111,8 +111,6 @@ fvm dart test
 Normal test runs use local peers and skip real-hub tests. See
 [testing](doc/testing.md) for coverage, validation gaps and opt-in Azure tests.
 
-The package currently depends on a pinned `mqtt_client`
-[fork](doc/upstream.md#mqtt-dependency) for packet-identifier handling.
 Implementation details and upstream test mappings are in the
 [transport notes](doc/telemetry-transport.md), [twin notes](doc/twins.md) and
 [C# compatibility reference](doc/upstream.md).

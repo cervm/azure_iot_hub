@@ -156,20 +156,9 @@ verify exported registration, connection and close notifications.
 
 ## MQTT dependency
 
-The package pins the `mqtt_client` fork at
-[`29efbfa`](https://github.com/cervm/mqtt_client/commit/29efbfa768dfc23102a07fe159057a898f426810),
-based on 10.13.0. It prevents reuse of packet identifiers awaiting protocol
-completion, following [MQTT 3.1.1 §2.3.1](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718025)
-(MQTT-2.3.1-2 and MQTT-2.3.1-3). It preserves the original 1–32,767 range,
-`maxMessageIdentifier`, public singleton and normal allocation sequence.
-Exhaustion throws `NoMessageIdentifiersException` before publish/unsubscribe
-submission; subscribe retains its existing null/failure behavior. Confirmed
-subscriptions retain their local map keys without reserving those IDs against later publishes.
-
-The fork's tests cover QoS 1/2, subscribe/unsubscribe, identifier exhaustion,
-acknowledgement reuse and client isolation. Rerun the
-[dependency regressions](../test/prototype/mqtt_cancellation_test.dart) when changing
-it. That test-only harness uses the original dependency transport; the SDK owns
+The package uses the hosted [`mqtt_client`](https://pub.dev/packages/mqtt_client)
+package. Rerun the [dependency regressions](../test/prototype/mqtt_cancellation_test.dart)
+when updating it. That test-only harness uses the dependency's transport; the SDK owns
 TLS/WebSocket setup and cleanup through its [transport adapters](telemetry-transport.md).
 
 The harness retains C#'s named
@@ -179,8 +168,6 @@ copyright and [MIT licence](../third_party/azure-iot-sdk-csharp-LICENSE). Additi
 Dart tests cover deadlines, PUBACK completion, late callbacks, bounded pending work
 and packet-ID wrap. [Operation tests](../test/pending_operation_test.dart) cover
 shared tokens, shutdown isolation, listener cleanup and terminal races.
-
-A hosted dependency containing this fix is required before publishing to pub.dev.
 
 ## SDK-owned cancellation
 
@@ -554,7 +541,7 @@ This follows [MQTT 3.1.1 §4.6, MQTT-4.6.0-2](https://docs.oasis-open.org/mqtt/m
 The owned transport sends these PUBACKs directly and releases mqtt_client's manual
 ACK entries. Its map holds only one entry per packet ID; this adaptation permits
 both an original and a duplicate QoS 1 delivery to complete in arrival order, as
-in C#'s `OrderedTwoPhaseWorkQueue`. It requires no additional fork change.
+in C#'s `OrderedTwoPhaseWorkQueue`.
 
 **Agreed storage bound:** retained C2D messages and deferred QoS 1 acknowledgements
 share a separate incoming `maxPending`/`maxPendingBytes` budget, counting payload

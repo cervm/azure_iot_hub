@@ -6,8 +6,7 @@
   token providers, including credential caching and refresh on reconnect.
 - Support X.509 authentication over MQTT/TLS and secure WebSockets with a prepared
   Dart `SecurityContext`; WebSockets require explicit TLS renegotiation opt-in.
-- Support MQTT over TLS and secure WebSockets, using a pinned `mqtt_client` fork
-  that prevents reuse of in-flight packet identifiers.
+- Support MQTT over TLS and secure WebSockets.
 - Send QoS 1 telemetry with application properties and supported message metadata.
 - Retrieve twin properties, update reported properties and receive desired-property
   patches, restoring subscriptions after reconnect.
