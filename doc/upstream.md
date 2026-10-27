@@ -592,6 +592,12 @@ callback delivery through the public API.
 
 ## Upstream maintenance
 
+Release review on 27 October 2026: the pinned C# release remains the latest stable
+release. The two subsequent commits on `main` change CI configuration only.
+The [C SDK October 2026 LTS](https://github.com/Azure/azure-iot-sdk-c/releases/tag/LTS_10_2026)
+and [latest Python release notes](https://github.com/Azure/azure-iot-sdk-python/releases/tag/release_2025_01_27)
+were reviewed as supplementary references; the C# baseline is unchanged.
+
 Before a package release, check stable C# releases and changes affecting the mapped
 features since this commit. Review relevant current C SDK LTS fixes and Python
 regression tests as supplementary references. Record adopted fixes, intentional

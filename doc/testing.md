@@ -20,7 +20,10 @@ test verifies IoT Hub's later certificate negotiation.
 
 ## Validation status
 
-Controlled tests passed on macOS ARM64 with Dart 3.13.7 on 26 October 2026.
+Controlled tests passed on macOS ARM64 with Dart 3.13.7 on 26 October 2026 and
+the minimum SDK, Dart 3.13.5, on 27 October 2026 (651 passed; 7 live tests skipped).
+The maintainer also reported successful Linux ARM64 testing on 27 October 2026.
+
 Live checks as of 25 October 2026:
 
 | Coverage | Result |
@@ -33,8 +36,7 @@ Live checks as of 25 October 2026:
 
 Remaining validation:
 
-- Platforms and runtimes: Linux ARM64, the minimum Dart SDK (3.13.5), native
-  DNS/TCP stalls and long-running resource usage.
+- Native runtime: DNS/TCP stalls and long-running resource usage.
 - Live lifecycle: reconnect and subscription restoration, SAS expiry/renewal and
   connection-status callbacks.
 - Live messaging: direct methods/C2D over WSS, method overload handling and C2D
