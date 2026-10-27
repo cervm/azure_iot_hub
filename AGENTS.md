@@ -70,7 +70,7 @@
 - Update affected API docs, examples, README, changelog and source/test mappings
   when behaviour changes. Keep tested SDKs/platforms and live-hub coverage distinct
   in `doc/testing.md`.
-- Before publishing, verify the declared minimum Dart SDK and Linux ARM64, review
+- Before publishing, verify the declared minimum Dart SDK, review
   [upstream changes](doc/upstream.md#upstream-maintenance), and run
   `fvm dart pub publish --dry-run`. Inspect the archive: retain licence notices and
   exclude local tooling, credentials and test fixtures.
