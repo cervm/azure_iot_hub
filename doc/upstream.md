@@ -4,6 +4,22 @@ For supported features, preserve C# observable behaviour and relevant tests whil
 using idiomatic Dart. Microsoft's documented IoT Hub protocol contract takes
 precedence. Keep intentional differences small, explicit and agreed.
 
+This reference records compatibility decisions and source/test mappings. For
+package usage, see the [README](../README.md); for validation results and gaps,
+see [testing](testing.md#validation-status).
+
+- [Baseline](#baseline), [source/test map](#sourcetest-map) and
+  [shared decisions](#verified-behaviour-and-decisions).
+- [Public API](#public-device-api), [connection status](#connection-status-callbacks),
+  [MQTT dependency](#mqtt-dependency) and [cancellation](#sdk-owned-cancellation).
+- [SAS authentication](#internal-authentication-coverage) and
+  [X.509 authentication](#x509-authentication).
+- [Telemetry](#internal-mqtt-telemetry-coverage),
+  [WebSockets](#internal-secure-websocket-coverage) and
+  [twins](#internal-twin-operation-coverage).
+- [Direct methods](#direct-methods), [cloud-to-device messages](#cloud-to-device-messages)
+  and [upstream maintenance](#upstream-maintenance).
+
 ## Baseline
 
 Verified on 24 October 2026:
@@ -14,8 +30,8 @@ Verified on 24 October 2026:
 
 ## Source/test map
 
-These are reference points for the SDK. Public API, dependency, authentication,
-telemetry, WSS, twin, direct-method and connection-status coverage are listed below.
+Shared lifecycle references are listed here; feature-specific mappings follow in
+their respective sections.
 
 | Behaviour | C# reference at the pinned commit | Dart coverage |
 | --- | --- | --- |
@@ -386,13 +402,13 @@ All C# paths are relative to `iothub/device/` at the pinned commit.
 | Runtime WebSocket I/O and MQTT framing | `src/Transport/Mqtt/ClientWebSocketChannel.cs`; `MqttTransportHandler.CreateWebSocketChannelFactory` | Dart `WebSocket` handles HTTP upgrade/framing; owned TLS socket and the shared MQTT decoder preserve cancellation and bounds |
 | Writes before connection and after close | `tests/Transport/Mqtt/ClientWebSocketChannelTests.cs` | Named adaptations in [WSS tests](../test/transport/websocket_test.dart); `WriteAfterCloseTest` is ignored upstream but runs here |
 
-Telemetry, GET, PATCH and desired-property suites now run against both TLS and WSS,
-including their existing named C# adaptations. Additional Dart tests cover HTTP
+Telemetry, GET, PATCH and desired-property suites run against both TLS and WSS,
+including their named C# adaptations. Additional Dart tests cover HTTP
 upgrade cleanup, late DNS, frame/fragment limits and closing during an active write.
 WebSocket connection errors use the existing transient network classification,
 following `ErrorDelegatingHandler`; TLS verification failures remain terminal.
 The transport choice corresponds to C#'s `Mqtt_Tcp_Only` and
-`Mqtt_WebSocket_Only`. Automatic fallback and proxy configuration are not yet
+`Mqtt_WebSocket_Only`. Automatic fallback and proxy configuration are not
 implemented. The [IoT Hub MQTT contract](https://learn.microsoft.com/en-us/azure/iot-hub/iot-mqtt-connect-to-iot-hub)
 confirms MQTT 3.1.1 over secure WebSockets on port 443.
 

@@ -1,5 +1,7 @@
 # Twin operations
 
+## Read and update properties
+
 `DeviceClient.getTwin` opens implicitly and returns `Twin`, with desired and reported
 maps at `twin.properties.desired` and `twin.properties.reported`.
 Nested JSON values, strings, nulls, `$version` and `$metadata` are retained.
@@ -12,6 +14,8 @@ change queued or retried bytes. This adapts C#'s mutable `TwinCollection` input 
 the Dart client's existing byte budget and snapshot semantics. Invalid JSON values
 and payloads above C#'s 262,143-byte MQTT limit fail before opening a connection.
 IoT Hub enforces its own property-name and twin-size restrictions.
+
+## Requests, retries and limits
 
 Each connection subscribes to `$iothub/twin/res/#` at QoS 1 and waits for SUBACK
 before completing open or submitting operations. This follows C#'s open sequence.
@@ -88,5 +92,6 @@ reconnect without GET, callback failures and shutdown. The
 [manual desired-property test](testing.md#manual-desired-property-test) verifies
 live delivery before and after re-registration.
 
-The [upstream mapping](upstream.md) records the pinned implementation. The wire contract is documented in Microsoft's
+The [upstream mapping](upstream.md#internal-twin-operation-coverage) records the
+pinned implementation. The wire contract is documented in Microsoft's
 [MQTT twin guide](https://learn.microsoft.com/en-us/azure/iot-hub/iot-mqtt-connect-to-iot-hub#update-device-twins-reported-properties).

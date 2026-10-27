@@ -1,4 +1,4 @@
-## 0.1.0-dev.1 (unreleased)
+## 0.1.0-dev.1
 
 - Add an experimental `DeviceClient` API for native Dart runtimes, following the
   pinned C# SDK's behaviour for supported features.

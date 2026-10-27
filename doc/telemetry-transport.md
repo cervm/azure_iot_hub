@@ -1,8 +1,8 @@
 # Telemetry transport
 
-The public `DeviceClient` delegates to `InternalClient` for SAS or X.509 authentication,
-implicit open, twin retrieval, reported-property updates, desired-property callbacks
-and QoS 1 telemetry over TLS on port 8883 or secure WebSockets on port 443.
+The public `DeviceClient` delegates to `InternalClient` for authentication,
+connection recovery, telemetry, twins, direct methods and cloud-to-device messages.
+The transport uses MQTT over TLS on port 8883 or secure WebSockets on port 443.
 A successful send means PUBACK arrived; cancellation or failure after submission
 reports unknown delivery.
 Retries can produce duplicate telemetry, as with C# QoS 1 sends.

@@ -20,7 +20,8 @@ test verifies IoT Hub's later certificate negotiation.
 
 ## Validation status
 
-Controlled tests run on macOS ARM64. Live checks as of 25 October 2026:
+Controlled tests passed on macOS ARM64 with Dart 3.13.7 on 26 October 2026.
+Live checks as of 25 October 2026:
 
 | Coverage | Result |
 | --- | --- |
@@ -30,12 +31,18 @@ Controlled tests run on macOS ARM64. Live checks as of 25 October 2026:
 | C2D messages over TLS | Polling and callback delivery passed with explicit completion submission |
 | X.509 telemetry and twin retrieval over TLS/WSS | Passed with a self-signed certificate registered by thumbprint; WSS used explicit renegotiation opt-in |
 
-Remaining validation: Linux ARM64, native DNS/TCP stalls, live reconnect and
-subscription restoration, SAS expiry/renewal, long-running resource usage, connection-status callbacks,
-WSS direct methods/C2D, method overload handling, C2D service-side completion
-feedback/redelivery and CA-signed certificate chains. Controlled tests cover the
-corresponding protocol and lifecycle paths where applicable.
-Controlled DNS tests inject late task completion; they do not reproduce an
+Remaining validation:
+
+- Platforms and runtimes: Linux ARM64, the minimum Dart SDK (3.13.5), native
+  DNS/TCP stalls and long-running resource usage.
+- Live lifecycle: reconnect and subscription restoration, SAS expiry/renewal and
+  connection-status callbacks.
+- Live messaging: direct methods/C2D over WSS, method overload handling and C2D
+  service-side completion feedback/redelivery.
+- Certificate authentication: CA-signed chains against IoT Hub.
+
+Controlled tests cover the corresponding protocol and lifecycle paths where
+applicable. DNS tests inject late task completion; they do not reproduce an
 operating-system DNS stall.
 
 ## Optional Azure tests

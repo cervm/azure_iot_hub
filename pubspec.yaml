@@ -1,10 +1,10 @@
 name: azure_iot_hub
 description: >-
   A native Dart Azure IoT Hub device SDK with MQTT/TLS and WebSockets,
-  SAS and X.509 authentication, telemetry, twins, direct methods and C2D messages.
+  SAS/X.509 authentication, telemetry, twins, direct methods, C2D messages,
+  retries and cancellation.
 version: 0.1.0-dev.1
 repository: https://github.com/cervm/azure_iot_hub
-publish_to: none
 
 environment:
   sdk: ^3.13.5
