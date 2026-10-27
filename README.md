@@ -1,6 +1,8 @@
-# azure_iot_hub
+# Dart Device SDK for Azure IoT Hub
 
-A standalone, pure-Dart Azure IoT Hub device SDK for native runtimes.
+An unofficial, independently maintained pure-Dart device SDK for Azure IoT Hub,
+targeting native runtimes. This project is not affiliated with, endorsed by, or
+supported by Microsoft.
 
 Experimental prerelease: the public API may change. Behaviour follows the pinned
 stable C# device SDK; see the [compatibility reference](doc/upstream.md) for
