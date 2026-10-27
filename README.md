@@ -106,24 +106,6 @@ already have reached the hub, so retrying can duplicate its effects.
 Connection-status callbacks report connection, recovery and shutdown. `close()`
 permanently shuts down the client. See the [public API contract](doc/upstream.md#public-device-api).
 
-## Development
-
-Repository development uses the Dart SDK pinned by FVM.
-
-```sh
-fvm dart pub get
-fvm dart format .
-fvm dart analyze
-fvm dart test
-```
-
-Normal test runs use local peers and skip real-hub tests. See
-[testing](doc/testing.md) for coverage, validation gaps and opt-in Azure tests.
-
-Implementation details and upstream test mappings are in the
-[transport notes](doc/telemetry-transport.md), [twin notes](doc/twins.md) and
-[C# compatibility reference](doc/upstream.md).
-
 ## License
 
 [MIT](LICENSE), copyright 2026 Marek Cervinka. Portions adapted from Microsoft's
